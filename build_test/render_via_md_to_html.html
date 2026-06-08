@@ -1,0 +1,65 @@
+<style>
+* { box-sizing:border-box; }
+body { font-family:'Segoe UI'; font-size:13px; color:#1E293B;
+       margin:16px 20px; line-height:1.8; }
+h2 { color:#1E40AF; font-size:16px; font-weight:700;
+     border-bottom:2px solid #BFDBFE; padding:6px 0 5px; margin:18px 0 10px; }
+h3 { color:#1E40AF; font-size:14px; font-weight:700;
+     border-left:4px solid #3B82F6; padding:4px 0 4px 10px;
+     margin:20px 0 10px; background:#FFFFFF; }
+h4 { color:#1E293B; font-size:14px; font-weight:700;
+     border-left:3px solid #93C5FD; padding:4px 0 4px 10px;
+     margin:14px 0 6px; background:#EFF6FF; }
+h5 { color:#1E293B; font-size:14px; font-weight:700;
+     border-bottom:2px solid #BFDBFE; padding:6px 0 4px;
+     margin:20px 0 8px; background:#FFFFFF; }
+table { border-collapse:collapse; width:100%; margin:6px 0 12px; font-size:12px;
+        table-layout:fixed; }
+th { background:#EFF6FF; color:#1D4ED8; padding:7px 10px;
+     border:1px solid #BFDBFE; text-align:left; font-weight:600;
+     white-space:nowrap; width:90px; }
+td { padding:8px 10px; border:1px solid #E2E8F0; vertical-align:top;
+     word-break:keep-all; overflow-wrap:anywhere; line-height:1.75; }
+tr:nth-child(even) td { background:#F8FAFC; }
+td ol, td ul { margin:2px 0; padding-left:16px; }
+td li { margin:5px 0; line-height:1.75; }
+code { background:#FDE68A; color:#78350F; padding:2px 6px;
+       border-radius:3px; font-family:Consolas; font-size:12px;
+       font-weight:600; }
+/* 표 셀 안의 인라인 코드는 톤 다운 — 노란 펠릿이 셀마다 5~6개씩 박혀
+   가독성을 해치므로 옅은 슬레이트 + 작은 패딩으로 시각 노이즈 축소 */
+td code { background:#F1F5F9; color:#334155; padding:1px 4px;
+          border:1px solid #E2E8F0; border-radius:3px;
+          font-family:Consolas; font-size:11px; font-weight:600; }
+pre  { background:#1E293B; color:#E2E8F0; border:none; border-radius:8px;
+       padding:14px 16px; font-family:Consolas; font-size:12px;
+       margin:10px 0 14px; white-space:pre-wrap; }
+hr  { border:none; border-top:1px solid #E2E8F0; margin:18px 0; }
+ul  { padding-left:20px; margin:4px 0 8px; }
+ol  { padding-left:20px; margin:4px 0 8px; }
+li  { margin:5px 0; background:#FFFFFF; }
+p   { margin:3px 0 7px; background:#FFFFFF; }
+
+</style>
+<h1>📝 변경점 #1 — 여러개 업로드 테스트</h1>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin:10px 0 14px;"><tr><td style="width:130px;padding:9px 12px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;font-weight:700;font-size:12px;text-align:center;">🔗 JIRA 링크</td><td style="padding:9px 14px;border:1px solid #E2E8F0;background:#FFFFFF;font-size:12px;word-break:break-all;overflow-wrap:anywhere;"><a href="https://sl-jira.slworld.com/projects/HKMCJGRLBM/issues/HKMCJGRLBM-185" target="_blank" rel="noopener" style="color:#1D4ED8;text-decoration:underline;font-weight:600;">https://sl-jira.slworld.com/projects/HKMCJGRLBM/issues/HKMCJGRLBM-185</a></td></tr></table>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin:14px 0 6px;"><tr><td style="padding:9px 14px;border:1px solid #EF4444;border-left:5px solid #EF4444;background:#FEE2E2;color:#991B1B;font-weight:700;font-size:13px;border-radius:4px;">⚠️ 현상</td></tr></table>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<p style="color:#1E293B;background:#FFFFFF;margin:4px 0 8px;">코드 리뷰에서 발견한 <strong>미구현</strong> 항목.</p>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin:14px 0 6px;"><tr><td style="padding:9px 14px;border:1px solid #3B82F6;border-left:5px solid #3B82F6;background:#DBEAFE;color:#1E40AF;font-weight:700;font-size:13px;border-radius:4px;">🔍 분석 내용</td></tr></table>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<p style="color:#1E293B;background:#FFFFFF;margin:4px 0 8px;">요구 사항의 누락</p>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin:14px 0 6px;"><tr><td style="padding:9px 14px;border:1px solid #10B981;border-left:5px solid #10B981;background:#D1FAE5;color:#065F46;font-weight:700;font-size:13px;border-radius:4px;">✅ 대책</td></tr></table>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<p style="color:#1E293B;background:#FFFFFF;margin:4px 0 8px;">대책 텍스트</p>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin:14px 0 6px;"><tr><td style="padding:9px 14px;border:1px solid #8B5CF6;border-left:5px solid #8B5CF6;background:#EDE9FE;color:#5B21B6;font-weight:700;font-size:13px;border-radius:4px;">🚗 수평전개</td></tr></table>
+<p style="margin:3px 0;background:#FFFFFF;"></p>
+<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin:0 0 14px;">
+  <tr><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">차종</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">NQ5 PE</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">MQ4i</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">LX3</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">JW</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">TK1</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">LQ2</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">SP3</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">KU FL</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">SG2</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">NX5(30Ah)</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">NX5(20Ah)</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">SX3</th><th style="padding:7px 4px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;text-align:center;font-weight:700;font-size:12px;">NQ6</th></tr>
+  <tr><td style="padding:6px 4px;border:1px solid #CBD5E1;background:#F8FAFC;color:#1E293B;text-align:center;font-weight:700;font-size:12px;">적용 여부</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#D1FAE5;color:#065F46;">적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#FEF3C7;color:#92400E;">NA</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td><td style="padding:6px 4px;border:1px solid #CBD5E1;text-align:center;font-weight:600;font-size:12px;background:#F1F5F9;color:#64748B;">미적용</td></tr>
+</table>

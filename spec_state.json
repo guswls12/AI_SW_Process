@@ -1,0 +1,88 @@
+{
+  "project": {
+    "name": "NX5 PLBM",
+    "ver_old": "26610101",
+    "ver_new": "26610101",
+    "author": "정현진",
+    "pr_date": "2026-06-08",
+    "attendees": "윤희종, 김인규, 최해인",
+    "date": ""
+  },
+  "items": [
+    {
+      "title": "",
+      "jira": "",
+      "phenom": "",
+      "analysis": "",
+      "action": "",
+      "occurrence": "",
+      "customer_open": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "적용",
+        "SX3": "미적용",
+        "Qy2i": "미적용",
+        "NQ6": "미적용"
+      },
+      "attachments": []
+    }
+  ],
+  "spec_changes": [
+    {
+      "title": "저전압 Sleep 조건 : Cell UV 추가",
+      "jira": "",
+      "content": "변경 전 : Pack UV 중심 Sleep 조건 (단일 Cell 저전압 미반영)\n\n변경 후 : Cell UV OR 조건 추가\n\n--\n기존 Pack UV 중심 Sleep 조건에 Cell UV(FLT_CELL_UV) 추가\n단일 Cell 저전압이 Pack 전압 평균에 묻히는 상황 보완",
+      "occurrence": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "Qy2i": "미적용",
+        "NQ6": "미적용"
+      },
+      "attachments": []
+    }
+  ],
+  "hzt_items": [
+    {
+      "title": "",
+      "jira": "",
+      "content": "",
+      "occurrence": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "Qy2i": "미적용",
+        "NQ6": "미적용"
+      }
+    }
+  ]
+}

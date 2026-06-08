@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SW 배포 파이프라인 — 앱 아이콘
+  ─────────────────────────────────────────────────────
+  컨셉: 라운드 스퀘어 BLUE 그라데이션 + 흰 "SW" + 파이프라인 흐름 도트
+  컬러: C.BLUE_DK(#4E9DB5) → C.BLUE(#8BBDD0) 대각선 그라데이션
+        (앱 전체 그라데이션 방향과 동일 — dark → light)
+  사이즈: 256x256 viewBox — Qt 가 임의 크기로 렌더링 (16/32/48/256 등 모두 OK)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <!-- 대각선 그라데이션 (좌상단 진함 → 우하단 밝음) -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#4E9DB5"/>
+      <stop offset="100%" stop-color="#8BBDD0"/>
+    </linearGradient>
+    <!-- 살짝의 내부 광택 — 우상단에 미세한 하이라이트 -->
+    <radialGradient id="gloss" cx="75%" cy="20%" r="60%">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 라운드 스퀘어 배경 -->
+  <rect x="16" y="16" width="224" height="224" rx="52" ry="52" fill="url(#bgGrad)"/>
+  <rect x="16" y="16" width="224" height="224" rx="52" ry="52" fill="url(#gloss)"/>
+
+  <!-- 흰 "SW" 텍스트 (중앙) -->
+  <text x="128" y="148"
+        font-family="Segoe UI, 'Malgun Gothic', Arial, sans-serif"
+        font-size="96" font-weight="800"
+        text-anchor="middle" fill="#FFFFFF"
+        letter-spacing="-2">SW</text>
+
+  <!-- 파이프라인 흐름 도트 (하단 — 흐려졌다 진해지는 진행감) -->
+  <circle cx="84"  cy="200" r="6" fill="#FFFFFF" fill-opacity="0.45"/>
+  <circle cx="106" cy="200" r="6" fill="#FFFFFF" fill-opacity="0.65"/>
+  <circle cx="128" cy="200" r="6" fill="#FFFFFF" fill-opacity="0.80"/>
+  <circle cx="150" cy="200" r="6" fill="#FFFFFF" fill-opacity="0.92"/>
+  <circle cx="172" cy="200" r="7" fill="#FFFFFF"/>
+</svg>

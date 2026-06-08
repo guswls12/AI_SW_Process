@@ -1,0 +1,18 @@
+# SW 배포 파이프라인 도구 — 런타임 의존성
+#
+# 설치:
+#   pip install -r requirements.txt
+#
+# 정확한 버전 고정이 필요하면 동작 확인된 환경에서 다음 명령으로 갱신:
+#   pip freeze > requirements.txt
+#
+# (현재는 하한선만 명시 — 메이저 버전이 올라가면 호환성 검증 필요)
+
+anthropic >= 0.40.0      # Claude API 클라이언트 (workers/prompts_worker.py)
+PyQt6 >= 6.7.0           # UI 프레임워크 (view/, main.py 등)
+python-docx >= 1.1.0     # DOCX 저장 (view/ui_save.py)
+htmldocx >= 0.0.6        # HTML → DOCX 변환 (view/ui_save.py)
+requests >= 2.31.0       # HTTP 클라이언트 — Codebeamer REST API 호출용 (integrations/codebeamer.py)
+
+# ── 빌드 도구 (개발/배포 시에만 필요) ─────────────────────────
+# pyinstaller >= 6.0     # EXE 빌드 (CodeReviewer.spec 사용)

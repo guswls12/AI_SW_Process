@@ -1,0 +1,45 @@
+{
+  "trackers": {
+    "change_tracker_id": "https://codebeamer.slworld.com/cb/tracker/9508556"
+  },
+  "common": {
+    "checklist": {
+      "intent": "사양 변경",
+      "target": "App_Fault 컴포넌트",
+      "impact": "",
+      "evidence": "",
+      "owners": ""
+    },
+    "reviews": {
+      "sys": "",
+      "sw": "",
+      "hw": "",
+      "test": ""
+    },
+    "meeting": {
+      "issues": "",
+      "decisions": "",
+      "action_items": [
+        {
+          "action": "체크리스트 누락 항목 보정",
+          "owner": "담당 설계자",
+          "due": "회의 후 지정",
+          "status": "대기"
+        },
+        {
+          "action": "근거 문서 및 Codebeamer 링크 보완",
+          "owner": "요구사항 담당",
+          "due": "회의 후 지정",
+          "status": "대기"
+        },
+        {
+          "action": "AI 인사이트 실행 전 최종 회의록 확정",
+          "owner": "회의 주관자",
+          "due": "회의 후 지정",
+          "status": "대기"
+        }
+      ]
+    },
+    "checklist_locked": false
+  }
+}

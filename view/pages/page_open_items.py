@@ -211,7 +211,7 @@ class OpenItemsPage(BasePage):
         # 안내 문구
         hint = QLabel(
             "ℹ  결과(O/X·건수) 칸은 [📥 불러오기] 시 ⑤ 정적 / ⑥ 리뷰 / ⑦ 테스트 에서 "
-            "자동 채워집니다. 사용자가 입력할 수 있는 칸은 코멘트 칸 뿐입니다.")
+            "자동 채워집니다. 불러온 후 코멘트를 달아주세요.")
         hint.setWordWrap(True)
         hint.setStyleSheet(
             f"color:{C.T3}; background:transparent;"

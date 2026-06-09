@@ -357,8 +357,7 @@ class DeployReviewPage(BasePage):
 
         # 안내 문구 — 점검표는 결과 출력 전용
         hint = QLabel(
-            "ℹ  점검표는 [📥 불러오기] 클릭 시 결과가 자동으로 출력됩니다. "
-            "사용자가 직접 편집할 수 없습니다.")
+            "ℹ  점검표는 [📥 불러오기] 클릭 시 결과가 자동으로 출력됩니다.")
         hint.setWordWrap(True)
         hint.setStyleSheet(
             f"color:{C.T3}; background:transparent;"

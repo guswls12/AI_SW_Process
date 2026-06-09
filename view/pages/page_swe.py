@@ -85,7 +85,9 @@ class _SrsLikeInputCard(QWidget):
         accent = QFrame(); accent.setFixedSize(3, 18)
         accent.setStyleSheet(f"background:{ACCENT}; border-radius:2px;")
         hl.addWidget(accent)
-        t = QLabel(f"📋  변경 전/후 {self._name}서 입력")
+        # '아키텍처서' 는 어색해서 "서" 안 붙임 — 그 외 요구사항/상세설계는 "서" 접미사
+        _suffix = "" if self._name == "아키텍처" else "서"
+        t = QLabel(f"📋  변경 전/후 {self._name}{_suffix} 입력")
         t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
         t.setStyleSheet(f"color:{ACCENT}; background:transparent;")
         hl.addWidget(t); hl.addStretch()
@@ -219,11 +221,13 @@ class SwePage(BasePage):
                 icon="📑")
             ck2_label = f"✅  {self._name} 체크시트 2"
 
+        # '아키텍처서' 는 어색해서 "서" 안 붙임 — 그 외 요구사항/상세설계는 "서" 접미사
+        _suffix = "" if self._name == "아키텍처" else "서"
         input_tabs = TabStack(
             pages=[
-                ("input_files", f"📋  변경 전/후 {self._name}서 입력", self.input_card),
-                ("checklist1",  ck1_label,                              ck1),
-                ("checklist2",  ck2_label,                              ck2),
+                ("input_files", f"📋  변경 전/후 {self._name}{_suffix} 입력", self.input_card),
+                ("checklist1",  ck1_label,                                    ck1),
+                ("checklist2",  ck2_label,                                    ck2),
             ],
             accent_color=C.BLUE,
             height=36,

@@ -24,6 +24,44 @@ from ._common import BasePage
 from core.project_state import build_tracker_url
 
 
+# ── 달력 팝업 라이트 모드 QSS ─────────────────────────────────
+# QDateEdit 의 calendarPopup 은 OS 테마(다크) 를 그대로 받으므로
+# 본문 카드와 맞도록 화이트 배경 + 슬레이트/블루 톤으로 명시 지정.
+_LIGHT_CAL_QSS = (
+    "QCalendarWidget QWidget { background:#FFFFFF; color:#1E293B; }"
+    "QCalendarWidget QWidget#qt_calendar_navigationbar {"
+    "  background:#EFF6FF; border-bottom:1px solid #BFDBFE; }"
+    "QCalendarWidget QToolButton {"
+    "  background:transparent; color:#1D4ED8;"
+    "  border:none; border-radius:4px;"
+    "  padding:4px 10px; font-weight:600; font-size:11px; }"
+    "QCalendarWidget QToolButton:hover {"
+    "  background:#DBEAFE; color:#1E40AF; }"
+    "QCalendarWidget QToolButton::menu-indicator { image:none; }"
+    "QCalendarWidget QSpinBox {"
+    "  background:#FFFFFF; color:#1E293B;"
+    "  border:1px solid #CBD5E1; border-radius:3px;"
+    "  padding:2px 4px; selection-background-color:#3B82F6;"
+    "  selection-color:#FFFFFF; }"
+    "QCalendarWidget QMenu {"
+    "  background:#FFFFFF; color:#1E293B;"
+    "  border:1px solid #CBD5E1; }"
+    "QCalendarWidget QMenu::item {"
+    "  background:transparent; padding:4px 16px; }"
+    "QCalendarWidget QMenu::item:selected {"
+    "  background:#DBEAFE; color:#1D4ED8; }"
+    "QCalendarWidget QAbstractItemView {"
+    "  background:#FFFFFF; color:#1E293B;"
+    "  selection-background-color:#3B82F6;"
+    "  selection-color:#FFFFFF;"
+    "  alternate-background-color:#F8FAFC;"
+    "  outline:none; }"
+    "QCalendarWidget QAbstractItemView:disabled { color:#94A3B8; }"
+    "QCalendarWidget QAbstractItemView:enabled {"
+    "  font-size:11px; }"
+)
+
+
 # ── ①~⑧ 점검표 항목 ─────────────────────────────────────────
 _REVIEW_ITEMS = [
     ("spec",   "①  사양 변경"),
@@ -206,6 +244,10 @@ class _ApprovalBox(QFrame):
             f"  border:1px solid {C.BDR}; border-radius:4px;"
             f"  padding:2px 8px; font-size:10px; }}"
             f"QDateEdit:focus {{ border-color:{C.BLUE}; }}")
+        # 달력 팝업을 라이트 모드로 — OS 다크 테마 무시
+        cal = de.calendarWidget()
+        if cal is not None:
+            cal.setStyleSheet(_LIGHT_CAL_QSS)
         return de
 
     def _row(self, lbl_text: str, widget) -> QHBoxLayout:

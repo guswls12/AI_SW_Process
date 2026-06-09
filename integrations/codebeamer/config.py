@@ -120,6 +120,19 @@ _LEGACY_KEYS = ("section_ll", "section_swe1", "section_swe3")
 
 
 def load_config() -> dict:
+    """저장된 cb_config.json 을 default 와 merge 후 반환.
+
+    보존 정책 (사용자 데이터 손실 방지):
+      · url        — 비어있으면 default 의 https://codebeamer.slworld.com/cb 복원.
+                     사용자가 수정/저장한 값은 그대로 유지.
+      · username/password — 사용자가 입력해 저장한 값 그대로 (default 는 빈값).
+      · section_past — TRACKER_DEFS 의 9개 트래커 (ILCU/LDM/SAL/.../WPC) 는
+                     **반드시 보존**. 사용자가 일부만 저장했거나 누락됐어도
+                     default 로 보강해 dict 통째로 복원.
+      · tracker_*  — 마찬가지로 빈 값이면 default 트래커 ID 로 복원.
+
+    누락/복원이 발생하면 디스크에 한 번만 다시 쓴다 (이후 호출은 그대로 반환).
+    """
     default = _default_cfg()
     if not os.path.exists(CB_CFG_FILE):
         # 최초 실행 시 기본값(트래커 포함)으로 파일 생성
@@ -134,21 +147,54 @@ def load_config() -> dict:
         with open(CB_CFG_FILE, "r", encoding="utf-8") as f:
             stored = json.load(f)
 
-        # 레거시 키 정리 — 발견 시 stored 에서 pop 하고 디스크에도 즉시 반영
+        needs_resave = False
+
+        # 레거시 키 정리 — 발견 시 stored 에서 pop
         had_legacy = any(k in stored for k in _LEGACY_KEYS)
         for k in _LEGACY_KEYS:
             stored.pop(k, None)
         if had_legacy:
-            try:
-                with open(CB_CFG_FILE, "w", encoding="utf-8") as f:
-                    json.dump(stored, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
+            needs_resave = True
 
         merged = {**default, **stored}
-        # 저장된 section_past 가 비어있으면 기본 트래커로 복원
-        if not stored.get("section_past"):
-            merged["section_past"] = default["section_past"]
+
+        # ── url 비어있으면 default 복원 ──────────────────────────
+        if not str(merged.get("url", "")).strip():
+            merged["url"] = default["url"]
+            needs_resave = True
+
+        # ── section_past deep-merge ─────────────────────────────
+        # 기본 9개 트래커를 시작점으로, 저장된 값을 덮어쓰는 방식.
+        # → 사용자가 dict 일부만 저장했거나 키를 지웠어도 9개 모두 보장.
+        sp_default = dict(default["section_past"])
+        sp_stored  = stored.get("section_past")
+        if isinstance(sp_stored, dict):
+            sp_merged = dict(sp_default)
+            for k, v in sp_stored.items():
+                # 빈 문자열도 default 로 폴백 (사용자가 비웠어도 트래커 ID 보존)
+                if isinstance(v, (str, int)) and str(v).strip():
+                    sp_merged[k] = str(v).strip()
+            if sp_merged != sp_stored:
+                needs_resave = True
+            merged["section_past"] = sp_merged
+        else:
+            merged["section_past"] = sp_default
+            needs_resave = True
+
+        # ── tracker_* 키 빈 값이면 default 트래커 ID 로 복원 ─────
+        for name, tid in TRACKER_DEFS:
+            key = f"tracker_{name.lower()}"
+            if not str(merged.get(key, "")).strip():
+                merged[key] = tid
+                needs_resave = True
+
+        # 누락/복원이 있었으면 디스크에 1회 동기화
+        if needs_resave:
+            try:
+                with open(CB_CFG_FILE, "w", encoding="utf-8") as f:
+                    json.dump(merged, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
         return merged
     except Exception:
         pass

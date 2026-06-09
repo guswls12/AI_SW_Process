@@ -959,8 +959,8 @@ class CbController:
                f"  📐 사양변경  : {n_s}건\n"
                f"  🚗 수평전개  : {n_h}건\n")
         if n_o > 0:
-            msg += (f"\n⚠ 카테고리 식별 불가 : {n_o}건\n"
-                    f"  (헤더 패턴이 # 📝/📐/🚗 으로 시작하지 않는 이슈)")
+            msg += (f"\n⚠ 본문이 비어있어 분류 불가 : {n_o}건\n"
+                    f"  (CB 이슈에 description 이 비어있는 항목 — 복원할 내용 없음)")
         QMessageBox.information(mw, "트래커 불러오기 완료", msg)
         mw._sb.showMessage(
             f"✅  ① 트래커 불러오기 — 이슈 {n_i} / 사양변경 {n_s} / "

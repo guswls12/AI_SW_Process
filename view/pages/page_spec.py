@@ -1916,6 +1916,9 @@ class SpecChangePage(BasePage):
         """단일 이슈 묶음을 마크다운 블록으로 렌더링.
         제목/JIRA/현상/분석/대책 모두 비어있으면 빈 문자열.
         H1(`#`) 으로 렌더 — CB 자동섹션 번호가 1./2./3. 로 매겨지도록.
+
+        본문 최상단에 SLAI 카테고리 마커 (HTML 주석) 를 박아 [불러오기] 시
+        포맷 변환된 본문에서도 카테고리/idx 가 안정적으로 식별되도록 한다.
         """
         title    = (d.get("title")    or "").strip()
         jira     = (d.get("jira")     or "").strip()
@@ -1928,7 +1931,7 @@ class SpecChangePage(BasePage):
         heading = f"# 📝 이슈 #{idx}"
         if title:
             heading += f" — {title}"
-        lines = [heading, ""]
+        lines = [f"<!-- SLAI:cat=issue idx={idx} -->", heading, ""]
 
         jira_card = _md_jira_link_card(jira)
         if jira_card:
@@ -1965,7 +1968,7 @@ class SpecChangePage(BasePage):
         heading = "# 📐 사양변경"
         if title:
             heading += f" — {title}"
-        lines = [heading, ""]
+        lines = ["<!-- SLAI:cat=spec -->", heading, ""]
 
         jira_card = _md_jira_link_card(jira)
         if jira_card:
@@ -2000,7 +2003,7 @@ class SpecChangePage(BasePage):
         heading = "# 🚗 수평전개"
         if title:
             heading += f" — {title}"
-        lines = [heading, ""]
+        lines = ["<!-- SLAI:cat=hzt -->", heading, ""]
 
         jira_card = _md_jira_link_card(jira)
         if jira_card:

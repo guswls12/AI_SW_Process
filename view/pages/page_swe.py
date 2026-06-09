@@ -184,11 +184,13 @@ class SwePage(BasePage):
 
     def __init__(self, number: str, title: str, name: str,
                  srs_review: bool = False, parent=None):
-        """srs_review=True 면 INPUT 2·3 탭에 새 SRS 검토 워크플로우 UI 마운트 (SRS 페이지 한정)."""
+        """3단계 (2026-06): srs_review 인자는 더 이상 의미 없음 — 호환성
+        위해 시그너처만 유지. 모든 SWE 페이지가 동일한 새 구조 사용.
+        """
         super().__init__(number, title, parent)
         self._name = name
-        self._srs_review_enabled = bool(srs_review)
-        # 상태 배너 — _build_content 안에서 outer_tabs 추가 전에 마운트
+        # 레거시 호환 — 일부 코드가 _srs_review_enabled 참조할 수 있음
+        self._srs_review_enabled = False
         self.status_banner = None
         self._build_content()
         self._install_swe_header_actions()
@@ -203,68 +205,76 @@ class SwePage(BasePage):
         self.cb_historical_tab: "CbHistoricalSubTab | None"     = None
         self.checklist_review_tab: "ChecklistReviewSubTab | None" = None
 
-        if self._srs_review_enabled:
-            self.cb_historical_tab    = CbHistoricalSubTab()
-            self.checklist_review_tab = ChecklistReviewSubTab()
-            ck1 = self.cb_historical_tab
-            ck1_label = "📦  변경점 + 과거차 불러오기"
-            ck2 = self.checklist_review_tab
-            ck2_label = "✏  체크시트 입력 + 검토"
-        else:
-            # SAD/SDD 페이지는 기존 placeholder 그대로 유지
-            ck1 = PlaceholderBody(
-                message=f"{self._name} 체크시트 1 — 추후 설계 예정",
-                icon="📑")
-            ck1_label = f"✅  {self._name} 체크시트 1"
-            ck2 = PlaceholderBody(
-                message=f"{self._name} 체크시트 2 — 추후 설계 예정",
-                icon="📑")
-            ck2_label = f"✅  {self._name} 체크시트 2"
+        # ── 3단계 (2026-06): SRS/SAD/SDD 공통 새 구조 ──────────────
+        # INPUT 탭 2개:
+        #   1) 변경 전/후 입력 + 변경점 불러오기 + 변경 없음 체크
+        #   2) ASPICE 체크리스트 (xlsx 로드/표시/편집)
+        # OUTPUT 탭 3개:
+        #   1) 변경점 VIEW (ReqDiffView)
+        #   2) 변경점 ↔ 요구사항 ID 매칭 결과
+        #   3) 체크리스트 AI 분석 결과 (AiResultDropdownPanel)
+        from .page_swe_v3_panel import (
+            ChangePointLoadCard, AspiceChecklistCard, ChangePointMatchingCard,
+        )
 
-        # '아키텍처서' 는 어색해서 "서" 안 붙임 — 그 외 요구사항/상세설계는 "서" 접미사
+        # ── 신규 위젯 인스턴스 ────────────────────────────────
+        self.change_load_card = ChangePointLoadCard(self._name)
+        self.aspice_checklist = AspiceChecklistCard()
+        self.change_match_card = ChangePointMatchingCard()
+        self.ai_result_panel = AiResultDropdownPanel()
+
+        # ── INPUT 탭 1: 변경 전/후 입력 + 변경점 불러오기 ───────
+        # _SrsLikeInputCard + ChangePointLoadCard 를 세로로 적층한 컨테이너
+        input_tab1 = QWidget()
+        input_tab1.setStyleSheet(f"background:{C.BG_APP};")
+        it1_lay = QVBoxLayout(input_tab1)
+        it1_lay.setContentsMargins(16, 16, 16, 16); it1_lay.setSpacing(12)
+        it1_lay.addWidget(self.input_card, stretch=2)
+        it1_lay.addWidget(self.change_load_card, stretch=1)
+
         _suffix = "" if self._name == "아키텍처" else "서"
         input_tabs = TabStack(
             pages=[
-                ("input_files", f"📋  변경 전/후 {self._name}{_suffix} 입력", self.input_card),
-                ("checklist1",  ck1_label,                                    ck1),
-                ("checklist2",  ck2_label,                                    ck2),
+                ("input_files",
+                 f"📋  변경 전/후 {self._name}{_suffix} + 변경점 불러오기",
+                 input_tab1),
+                ("aspice_checklist",
+                 "📊  ASPICE 체크리스트",
+                 self.aspice_checklist),
             ],
             accent_color=C.BLUE,
             height=36,
         )
-        self._input_tabs = input_tabs   # 네비게이션 버튼이 참조
+        self._input_tabs = input_tabs
 
-        # OUTPUT 탭 내부 위젯들
+        # ── OUTPUT 탭 — DIFF VIEW / 매칭 결과 / AI 결과 ─────────
         self.diff_view = ReqDiffView()
-        # SRS 검토 활성 페이지(SWE.1) 만 AI 인사이트 결과 패널 사용,
-        # SWE.2/3 는 기존 placeholder 유지.
-        self.ai_result_panel: "AiResultDropdownPanel | None" = None
-        if self._srs_review_enabled:
-            self.ai_result_panel = AiResultDropdownPanel()
-            result_widget = self.ai_result_panel
-            result_label  = "🤖  AI 인사이트 결과"
-        else:
-            result_widget = PlaceholderBody(
-                message="체크시트 결과 — 추후 설계 예정",
-                icon="📊")
-            result_label  = "📊  체크시트 결과"
-
-        # ReqDiffView 는 QWidget — 그냥 컨테이너로 감싸지 않고 그대로 사용
         diff_container = QWidget()
         diff_container.setStyleSheet(f"background:{C.BG_APP};")
         dcl = QVBoxLayout(diff_container)
         dcl.setContentsMargins(16, 16, 16, 16); dcl.setSpacing(0)
         dcl.addWidget(self.diff_view, stretch=1)
 
+        match_container = QWidget()
+        match_container.setStyleSheet(f"background:{C.BG_APP};")
+        mcl = QVBoxLayout(match_container)
+        mcl.setContentsMargins(16, 16, 16, 16); mcl.setSpacing(0)
+        mcl.addWidget(self.change_match_card, stretch=1)
+
         output_tabs = TabStack(
             pages=[
-                ("diff_view",      "🔀  변경점 VIEW",     diff_container),
-                ("ai_result",      result_label,          result_widget),
+                ("diff_view", "🔀  변경점 VIEW",        diff_container),
+                ("match",     "🔗  변경점 매칭 결과",    match_container),
+                ("ai_result", "🤖  체크리스트 AI 분석 결과", self.ai_result_panel),
             ],
             accent_color=C.BLUE,
             height=36,
         )
-        self._output_tabs = output_tabs   # 컨트롤러가 분석 완료 후 OUTPUT 전환에 사용
+        self._output_tabs = output_tabs
+        # cb_historical_tab / checklist_review_tab 은 더 이상 SwePage 에 없음
+        # (① 사양변경 페이지로 이전됨). 외부 호환 위해 None 유지.
+        self.cb_historical_tab    = None
+        self.checklist_review_tab = None
 
         # 외부 INPUT/OUTPUT 탭
         outer_tabs = TabStack(
@@ -365,57 +375,72 @@ class SwePage(BasePage):
         return os.path.join(_BASE, "srs_review_state.json")
 
     def to_state(self) -> dict:
-        """현재 SRS 검토 입력 상태를 JSON 직렬화 가능한 dict 로.
-        SRS 검토 미활성 페이지(SAD/SDD)는 빈 dict 반환.
+        """3단계 새 구조 — 변경 없음 체크/코멘트 + 체크리스트 파일 경로 등.
+        체크리스트 본문 자체는 xlsx 파일에 저장되므로 여기엔 경로만.
         """
-        if not self._srs_review_enabled:
-            return {}
-        tracker_ids = (self.cb_historical_tab.get_tracker_ids()
-                       if self.cb_historical_tab else {})
-        common = (self.checklist_review_tab.get_common_inputs()
-                  if self.checklist_review_tab else {})
-        return {
-            "trackers": tracker_ids,
-            "common":   common,
+        # 페이지별 파일 분리 — name 으로 구분 (요구사항/아키텍처/상세설계)
+        out = {
+            "name": self._name,
+            "change_load": self.change_load_card.to_state()
+                           if self.change_load_card else {},
         }
+        # 체크리스트 source_path (있으면)
+        try:
+            st = self.aspice_checklist.get_state() if self.aspice_checklist else {}
+            if isinstance(st, dict) and st.get("source_path"):
+                out["aspice_checklist_path"] = st["source_path"]
+        except Exception:
+            pass
+        return out
 
     def apply_state(self, state: dict):
-        """to_state() 결과를 받아 위젯들에 복원 (SRS 검토 페이지만)."""
-        if not self._srs_review_enabled or not isinstance(state, dict):
+        """to_state() 결과를 받아 위젯들에 복원."""
+        if not isinstance(state, dict):
             return
-        if self.cb_historical_tab is not None:
-            self.cb_historical_tab.apply_tracker_ids(state.get("trackers") or {})
-        if self.checklist_review_tab is not None:
-            self.checklist_review_tab.apply_common_inputs(state.get("common") or {})
+        if self.change_load_card is not None:
+            self.change_load_card.apply_state(state.get("change_load") or {})
+        # 체크리스트 파일 자동 재로드 (경로가 보존되어 있으면)
+        path = (state.get("aspice_checklist_path") or "").strip()
+        if path and self.aspice_checklist is not None:
+            try:
+                import os as _os
+                if _os.path.exists(path):
+                    self.aspice_checklist.load_from_path(path)
+            except Exception:
+                pass
 
     def save_state(self):
-        """앱 종료 시 호출 — srs_review_state.json 에 저장.
-        SRS 검토 미활성 페이지는 no-op (SAD/SDD).
-        """
-        if not self._srs_review_enabled:
-            return
+        """앱 종료 시 호출 — 페이지별 state json 저장."""
         try:
             import json, os
             path = self._state_file_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            # 페이지별로 한 파일에 dict 키로 보관 (요구사항/아키텍처/상세설계)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    blob = json.load(f) or {}
+            except Exception:
+                blob = {}
+            if not isinstance(blob, dict):
+                blob = {}
+            blob[self._name] = self.to_state()
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.to_state(), f, ensure_ascii=False, indent=2)
+                json.dump(blob, f, ensure_ascii=False, indent=2)
         except Exception:
-            # 저장 실패는 무시 — 사용자 흐름 방해 X
             pass
 
     def load_state(self):
-        """앱 시작 시 호출 — srs_review_state.json 이 있으면 복원."""
-        if not self._srs_review_enabled:
-            return
+        """앱 시작 시 호출 — 페이지별 state 가 있으면 복원."""
         try:
             import json, os
             path = self._state_file_path()
             if not os.path.exists(path):
                 return
             with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.apply_state(data)
+                blob = json.load(f) or {}
+            if not isinstance(blob, dict):
+                return
+            self.apply_state(blob.get(self._name) or {})
         except Exception:
             pass
 
@@ -426,12 +451,13 @@ class SwePage(BasePage):
 class SrsPage(SwePage):
     """② SWE.1 SRS — 요구사항.
 
-    INPUT 2·3 탭에 새 SRS 검토 워크플로우 UI (변경점/과거차 fetch +
-    공통 체크리스트/검토/회의록 + AI 인사이트) 임베드. SrsReviewV2Controller 연동.
+    3단계 (2026-06) 구조:
+      INPUT 2탭 — [변경 전/후 요구사항서 + 변경점 불러오기] / [ASPICE 체크리스트]
+      OUTPUT 3탭 — [변경점 VIEW] / [변경점 매칭 결과] / [체크리스트 AI 분석 결과]
+    SAD/SDD 와 동일 구조 (체크리스트 매핑만 페이지별로 다름).
     """
     def __init__(self, parent=None):
-        super().__init__("②", "SWE.1 SRS", "요구사항",
-                         srs_review=True, parent=parent)
+        super().__init__("②", "SWE.1 SRS", "요구사항", parent=parent)
 
 
 class SadPage(SwePage):

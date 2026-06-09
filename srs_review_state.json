@@ -5,7 +5,7 @@
   "common": {
     "checklist": {
       "intent": "사양 변경",
-      "target": "App_Fault 컴포넌트",
+      "target": "",
       "impact": "",
       "evidence": "",
       "owners": ""

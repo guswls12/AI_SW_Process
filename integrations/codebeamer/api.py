@@ -1504,6 +1504,63 @@ class CbFetcher:
             lines.append(f"  • {ep} [field={field}] → HTTP {status}: {body[:120]}")
         raise RuntimeError("\n".join(lines))
 
+    # ── 이슈의 첨부 파일 목록 조회 ───────────────────────────
+    def fetch_item_attachments(self, item_id: str) -> list:
+        """이슈에 첨부된 파일 목록 반환.
+        반환: [{"id":..., "name":..., "size":..., ...}, ...]
+        엔드포인트 실패하면 빈 리스트 (호출 측이 안전하게 OK/NG 판단 가능).
+        """
+        iid = str(item_id or "").strip()
+        if not iid:
+            return []
+        endpoints = [
+            f"/api/v3/items/{iid}/attachments",
+            f"/rest/item/{iid}/attachments",
+            f"/rest/items/{iid}/attachments",
+        ]
+        for ep in endpoints:
+            try:
+                data = self._get(ep)
+            except Exception:
+                continue
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                # 다양한 wrapper key 처리
+                for k in ("attachments", "items", "data", "results"):
+                    v = data.get(k)
+                    if isinstance(v, list):
+                        return v
+        return []
+
+    # ── 이슈의 코멘트 목록 조회 ──────────────────────────────
+    def fetch_item_comments(self, item_id: str) -> list:
+        """이슈에 달린 코멘트 목록 반환.
+        반환: [{"id":..., "comment":..., "submitter":..., "submittedAt":...}, ...]
+        엔드포인트 실패하면 빈 리스트.
+        """
+        iid = str(item_id or "").strip()
+        if not iid:
+            return []
+        endpoints = [
+            f"/api/v3/items/{iid}/comments",
+            f"/rest/item/{iid}/comments",
+            f"/rest/items/{iid}/comments",
+        ]
+        for ep in endpoints:
+            try:
+                data = self._get(ep)
+            except Exception:
+                continue
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                for k in ("comments", "items", "data", "results"):
+                    v = data.get(k)
+                    if isinstance(v, list):
+                        return v
+        return []
+
     # ── 연결 테스트 ───────────────────────────────────────────
     def test_connection(self) -> str:
         """폼 로그인(세션 쿠키)으로 자격증명을 검증하고 API 접근을 확인한다."""

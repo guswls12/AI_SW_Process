@@ -125,6 +125,12 @@ class TabBar(QFrame):
     def current(self) -> str:
         return self._current_key
 
+    def set_label(self, key: str, label: str):
+        """탭 버튼의 라벨을 동적으로 갱신 — 예: '이슈' → '이슈 (3)'."""
+        btn = self._btns.get(key)
+        if btn is not None:
+            btn.setText(label)
+
     def _restyle(self):
         for k, btn in self._btns.items():
             is_on = (k == self._current_key)
@@ -184,6 +190,10 @@ class TabStack(QWidget):
 
     def set_current(self, key: str):
         self.bar.set_current(key)
+
+    def set_tab_label(self, key: str, label: str):
+        """탭 라벨을 동적으로 갱신 (개수 표시 등)."""
+        self.bar.set_label(key, label)
 
 
 # ══════════════════════════════════════════════════════════════

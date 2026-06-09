@@ -4,9 +4,8 @@
        trackers[page_key] 가 채워져 있으면 PASS, 비어있으면 FAIL.
        링크는 https://codebeamer.slworld.com/cb/tracker/{ID} 로 자동 생성.
 
-표 2 — 결재란 (작성자 / 검토자 / 배포 승인자)
-       사용자 입력 가능 위젯은 **작성자 / 검토자만**.
-       배포 승인자는 비활성 (read-only) — Codebeamer 에서 입력 가능 안내.
+표 2 — 결재란 (작성자 / 검토자)
+       배포 승인은 Codebeamer 측에서 진행 — 이 페이지에서는 결재 X.
 
 페이지의 [📥 불러오기] 는 project_state JSON 에서 trackers 를 로드해
 ①~⑨ 점검표 결과/링크를 갱신한다.
@@ -62,25 +61,17 @@ _LIGHT_CAL_QSS = (
 )
 
 
-# ── ①~⑧ 점검표 항목 ─────────────────────────────────────────
-_REVIEW_ITEMS = [
-    ("spec",   "①  사양 변경"),
-    ("srs",    "②  SWE.1 SRS"),
-    ("sad",    "③  SWE.2 SAD"),
-    ("sdd",    "④  SWE.3/4 SDD"),
-    ("static", "⑤  정적 검증 결과"),
-    ("review", "⑥  코드리뷰 결과"),
-    ("test",   "⑦  설계자 테스트 결과"),
-    ("open",   "⑧  OPEN 항목 및 잔여 조치"),
-]
+# ── 4단계 (2026-06) 새 양식 — 변경점 N 행 + 컬럼별 PASS/NG ────────
+# 컬럼: [분류] | 사양변경 리스트 | SRS | SAD | SDD | 정적 | 코드리뷰 | 테스트 | OPEN/CLOSE
 
-# 점검표 컬럼 폭
-_DR_W_ITEM   = 240
-_DR_W_RESULT = 120
-# 링크 컬럼은 stretch
+_DR_W_CAT    = 70
+_DR_W_TITLE  = 240
+_DR_W_RESULT = 100   # SRS/SAD/SDD/정적/코드리뷰/테스트 각각
+_DR_W_STATE  = 90    # OPEN/CLOSE
 
 _DR_HEADER_H = 36
-_DR_ROW_H    = 38
+_DR_ROW_H    = 36
+_DR_RESULT_ROW_H = 60   # Result 행은 첨부 안내문 한 줄 들어가서 2배 높이
 
 
 # ══════════════════════════════════════════════════════════════
@@ -138,6 +129,56 @@ def _dr_link() -> QLabel:
     lb.setMinimumHeight(_DR_ROW_H)
     lb.setOpenExternalLinks(True)
     lb.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+    return lb
+
+
+def _dr_color_cell(width: int = 0) -> QLabel:
+    """변경점 행의 SWE/정적/코드리뷰/테스트 셀 — 색상 + 트래커 링크.
+    apply_results 에서 _apply_cell 로 색상 갱신.
+    """
+    lb = QLabel("-")
+    lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lb.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
+    lb.setStyleSheet(
+        f"color:{C.T3}; background:{C.BG_CARD};"
+        f" border:1px solid {C.BDR}; padding:4px 6px;")
+    lb.setMinimumHeight(_DR_ROW_H)
+    if width > 0:
+        lb.setFixedWidth(width)
+    lb.setOpenExternalLinks(True)
+    lb.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+    return lb
+
+
+def _dr_state_combo(width: int = 0):
+    """OPEN/CLOSE 콤보 — 사용자 편집 가능."""
+    from PyQt6.QtWidgets import QComboBox
+    cb = QComboBox()
+    cb.addItems(["OPEN", "CLOSE"])
+    cb.setMinimumHeight(_DR_ROW_H)
+    if width > 0:
+        cb.setFixedWidth(width)
+    cb.setStyleSheet(
+        f"QComboBox {{ background:{C.BG_INPUT}; color:{C.T0};"
+        f"  border:1px solid {C.BDR}; padding:2px 8px;"
+        f"  font-size:10px; font-weight:700; }}"
+        f"QComboBox QAbstractItemView {{ background:#FFFFFF;"
+        f"  color:{C.T0}; selection-background-color:#DBEAFE; }}")
+    return cb
+
+
+def _dr_result_summary(width: int = 0) -> QLabel:
+    """Result 행 셀 — PASS/NG 표시 (편집 불가)."""
+    lb = QLabel("-")
+    lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lb.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
+    lb.setStyleSheet(
+        f"color:{C.T3}; background:{C.BG_CARD};"
+        f" border:1px solid {C.BDR}; padding:4px 6px;")
+    lb.setMinimumHeight(_DR_RESULT_ROW_H)
+    lb.setMaximumHeight(_DR_RESULT_ROW_H)
+    if width > 0:
+        lb.setFixedWidth(width)
     return lb
 
 
@@ -290,10 +331,12 @@ class DeployReviewPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__("⑨", "배포 리뷰", parent)
-        # {page_key: {"result": QLabel, "link": QLabel}}
+        # 레거시 호환 — 일부 외부 호출이 _rows / _tracker_ids 를 참조할 수 있음
         self._rows: dict = {}
-        # 트래커 ID 보관 (CB 업로드 마크다운에서 사용)
-        self._tracker_ids: dict = {k: "" for k, _ in _REVIEW_ITEMS}
+        self._tracker_ids: dict = {}
+        # 4단계 새 양식 — 동적 데이터 행
+        self._data_rows: list = []
+        self._result_widgets: dict = {}
         self._build_content()
 
     def _build_content(self):
@@ -368,27 +411,48 @@ class DeployReviewPage(BasePage):
         return card
 
     def _build_grid_table(self) -> QFrame:
+        """변경점 N 행 + Result 1행 표.
+
+        헤더: [분류] | 사양변경 리스트 | SRS | SAD | SDD | 정적 | 코드리뷰 | 테스트 | OPEN/CLOSE
+        데이터 행은 set_change_items() / apply_results() 가 동적 생성.
+        """
         wrap = QFrame()
         wrap.setStyleSheet("background:transparent;")
-        g = QGridLayout(wrap)
-        g.setContentsMargins(0, 0, 0, 0)
-        g.setSpacing(0)
+        self._grid = QGridLayout(wrap)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(0)
 
-        # 헤더
-        g.addWidget(_dr_hdr("항목",                  width=_DR_W_ITEM),   0, 0)
-        g.addWidget(_dr_hdr("결과",                  width=_DR_W_RESULT), 0, 1)
-        g.addWidget(_dr_hdr("링크 (Codebeamer 트래커)"),                  0, 2)
+        # 헤더 행
+        cols = [
+            ("[분류]",         _DR_W_CAT),
+            ("사양변경 리스트", _DR_W_TITLE),
+            ("SRS",            _DR_W_RESULT),
+            ("SAD",            _DR_W_RESULT),
+            ("SDD",            _DR_W_RESULT),
+            ("정적",            _DR_W_RESULT),
+            ("코드리뷰",        _DR_W_RESULT),
+            ("테스트",          _DR_W_RESULT),
+            ("OPEN/CLOSE",     _DR_W_STATE),
+        ]
+        for c, (lbl, w) in enumerate(cols):
+            self._grid.addWidget(_dr_hdr(lbl, width=w), 0, c)
+        self._grid.setColumnStretch(8, 0)
 
-        # 데이터 행
-        for idx, (key, label) in enumerate(_REVIEW_ITEMS, start=1):
-            g.addWidget(_dr_item(label, width=_DR_W_ITEM),   idx, 0)
-            res = _dr_result(width=_DR_W_RESULT)
-            g.addWidget(res, idx, 1)
-            lnk = _dr_link()
-            g.addWidget(lnk, idx, 2)
-            self._rows[key] = {"result": res, "link": lnk}
+        # 빈 상태 메시지
+        self._empty_msg = QLabel(
+            "📭  [📥 불러오기] 를 누르면 변경점이 자동으로 표시됩니다.")
+        self._empty_msg.setFont(QFont(C.FUI, 10))
+        self._empty_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_msg.setStyleSheet(
+            f"color:{C.T3}; background:{C.BG_CARD};"
+            f" border:1px solid {C.BDR}; padding:20px;")
+        self._grid.addWidget(self._empty_msg, 1, 0, 1, 9)
 
-        g.setColumnStretch(2, 1)
+        # 동적 행 보관
+        # rows: [{cat, title, change_id, widgets:{srs, sad, sdd, static, review, test, state}}]
+        self._data_rows: list[dict] = []
+        # Result 행 보관 — set_change_items 이후 마지막 행에 생성
+        self._result_widgets: dict = {}
         return wrap
 
     # ── 카드 2 : 결재란 ─────────────────────────────────────
@@ -416,58 +480,281 @@ class DeployReviewPage(BasePage):
         body = QWidget(); body.setStyleSheet("background:transparent;")
         bl = QHBoxLayout(body); bl.setContentsMargins(14, 14, 14, 14); bl.setSpacing(10)
 
-        # 작성자 / 검토자 — 입력 가능
+        # 작성자 / 검토자 — 입력 가능 (배포 승인자는 CB 에서 직접 결재)
         self.box_writer   = _ApprovalBox("작성자",   editable=True)
         self.box_reviewer = _ApprovalBox("검토자",   editable=True)
-        # 배포 승인자 — 비활성 + Codebeamer 안내
-        self.box_approver = _ApprovalBox(
-            "배포 승인자 (팀장)",
-            editable=False,
-            hint=("ⓘ 이 칸은 프로그램에서 입력할 수 없습니다.\n"
-                  "Codebeamer 에 업로드된 이슈에서 직접 결재해 주세요."),
-        )
 
         bl.addWidget(self.box_writer)
         bl.addWidget(self.box_reviewer)
-        bl.addWidget(self.box_approver)
+        bl.addStretch(1)   # 두 칸만 남아 좌측 정렬 — 가운데 채움
         cl.addWidget(body)
         return card
 
-    # ── 공개 API : 컨트롤러가 trackers 로 행 갱신 ─────────────
-    def set_trackers(self, trackers: dict):
-        """{page_key: tracker_id} dict 로 결과/링크 자동 채움 (사용자 편집 불가)."""
-        if not isinstance(trackers, dict):
+    # ── 공개 API (4단계 새 양식) ────────────────────────────
+    def set_change_items(self, items: list):
+        """변경점 dict 리스트 → 행 동적 생성.
+        items: [{"cat": "issue/spec/hzt", "title": str, "id": str}, ...]
+        """
+        # 기존 데이터 행 + Result 행 정리
+        self._clear_data_rows()
+        if not items:
+            self._empty_msg.setVisible(True)
+            self._empty_msg.setText(
+                "📭  변경점이 없습니다. ① 사양변경 페이지에서 먼저 입력하세요.")
             return
-        for key, row in self._rows.items():
-            tid = str(trackers.get(key) or "").strip()
-            self._tracker_ids[key] = tid
+        self._empty_msg.setVisible(False)
 
-            # 결과 — 트래커 ID 있으면 PASS, 없으면 FAIL
-            _apply_pass_fail(row["result"], "PASS" if tid else "FAIL")
+        # 데이터 행
+        for i, it in enumerate(items, start=1):
+            self._add_data_row(i, it)
+        # Result 행
+        self._add_result_row(len(self._data_rows) + 1)
 
-            # 링크
-            if tid:
-                url = build_tracker_url(tid)
-                row["link"].setText(
-                    f'<a href="{url}" style="color:{C.BLUE};">#{tid}</a>')
+    def apply_results(self, results_by_id: dict, *,
+                      static_link: str = "", review_text: str = "-",
+                      test_link: str = "",
+                      sas: dict = None) -> None:
+        """변경점별 컬럼 결과 적용.
+
+        results_by_id : {change_id: {"srs": "track_id"|"N/A"|"", "sad":..., "sdd":...}}
+                        값이 트래커 ID (숫자 문자열) 면 초록 + 링크 표시
+                        "N/A"  → 노란색 N/A
+                        "" / X → 빨강 "없음"
+        static_link   : 정적 트래커 ID (모든 행 동일)
+        test_link     : 테스트 트래커 ID (모든 행 동일)
+        review_text   : 코드리뷰 표시 텍스트 (4단계 보류 → "-")
+        sas           : {"srs": "체크리스트 결과 트래커 ID", "sad":..., "sdd":...}
+                        Result 행 아래 첨부 안내문에 사용
+        """
+        for r in self._data_rows:
+            cid = r["change_id"]
+            res = (results_by_id or {}).get(cid, {}) if isinstance(results_by_id, dict) else {}
+            for col_key in ("srs", "sad", "sdd"):
+                self._apply_cell(r["widgets"][col_key], res.get(col_key, ""))
+            self._apply_cell(r["widgets"]["static"], static_link or "")
+            self._apply_cell(r["widgets"]["review"], review_text or "-")
+            self._apply_cell(r["widgets"]["test"],   test_link or "")
+
+        # Result 행 — 컬럼별 PASS/NG 계산
+        self._refresh_result_row(sas or {})
+
+    # ── 데이터 행 헬퍼 ──────────────────────────────────────
+    def _add_data_row(self, idx: int, item: dict):
+        cat   = str(item.get("cat") or "")
+        title = str(item.get("title") or "")
+        cid   = str(item.get("id") or "")
+        # 카테고리 한글 라벨
+        cat_text = {"spec": "사양변경", "issue": "이슈",
+                    "hzt": "수평전개"}.get(cat, cat or "-")
+
+        cat_lbl   = _dr_item(cat_text, width=_DR_W_CAT)
+        cat_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_lbl = _dr_item(f"{idx}. {title or '(제목 없음)'}", width=_DR_W_TITLE)
+        widgets = {
+            "srs":    _dr_color_cell(_DR_W_RESULT),
+            "sad":    _dr_color_cell(_DR_W_RESULT),
+            "sdd":    _dr_color_cell(_DR_W_RESULT),
+            "static": _dr_color_cell(_DR_W_RESULT),
+            "review": _dr_color_cell(_DR_W_RESULT),
+            "test":   _dr_color_cell(_DR_W_RESULT),
+            "state":  _dr_state_combo(_DR_W_STATE),
+        }
+        row_idx = len(self._data_rows) + 1   # 헤더 다음
+        self._grid.addWidget(cat_lbl,   row_idx, 0)
+        self._grid.addWidget(title_lbl, row_idx, 1)
+        for c, key in enumerate(("srs", "sad", "sdd", "static",
+                                 "review", "test", "state"), start=2):
+            self._grid.addWidget(widgets[key], row_idx, c)
+
+        self._data_rows.append({
+            "cat":       cat,
+            "title":     title,
+            "change_id": cid,
+            "widgets":   {**widgets, "cat_lbl": cat_lbl, "title_lbl": title_lbl},
+        })
+
+    def _add_result_row(self, row_idx: int):
+        """Result 행 생성. 각 컬럼별 PASS/NG/-."""
+        result_lbl = QLabel("Result")
+        result_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        result_lbl.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
+        result_lbl.setStyleSheet(
+            f"color:#FFFFFF; background:{C.BLUE_DK};"
+            f" border:1px solid {C.BLUE_DK}; padding:4px 8px;")
+        result_lbl.setMinimumHeight(_DR_RESULT_ROW_H)
+        result_lbl.setMaximumHeight(_DR_RESULT_ROW_H)
+        self._grid.addWidget(result_lbl, row_idx, 0, 1, 2)
+
+        self._result_widgets = {}
+        for c, key in enumerate(("srs", "sad", "sdd", "static",
+                                 "review", "test", "state"), start=2):
+            cell = _dr_result_summary(_DR_W_RESULT if key != "state" else _DR_W_STATE)
+            self._grid.addWidget(cell, row_idx, c)
+            self._result_widgets[key] = cell
+
+    def _refresh_result_row(self, sas_trackers: dict):
+        """각 컬럼별 상태 → Result 셀 PASS/NG.
+
+        규칙:
+          · N/A 포함 시 PASS 로 처리 (사용자 협의 완료)
+          · 모두 트래커 ID(초록) 또는 N/A 면 PASS
+          · X(없음) 하나라도 있으면 NG
+        """
+        for col_key in ("srs", "sad", "sdd", "static", "review", "test"):
+            values = [r["widgets"][col_key].property("status") or ""
+                      for r in self._data_rows]
+            if not values:
+                self._set_result(col_key, "-")
+                continue
+            has_red = any(v == "red" for v in values)
+            if has_red:
+                self._set_result(col_key, "NG")
             else:
-                row["link"].setText("-")
+                # 모두 green / yellow / 빈값 — PASS
+                self._set_result(col_key, "PASS")
+        # 상태(OPEN/CLOSE) 컬럼의 Result — 전체 CLOSE 면 PASS, 아니면 NG
+        if self._data_rows:
+            states = [r["widgets"]["state"].currentText() for r in self._data_rows]
+            self._set_result(
+                "state", "PASS" if all(s == "CLOSE" for s in states) else "NG")
+        else:
+            self._set_result("state", "-")
+
+        # SRS/SAD/SDD 체크리스트 결과 트래커 첨부 안내문 (Result 셀 아래 작은 텍스트)
+        sas = sas_trackers or {}
+        attach_hints = {
+            "srs": f"+ SRS 체크리스트 결과 #{sas.get('srs', '')}" if sas.get("srs") else "",
+            "sad": f"+ SAD 체크리스트 결과 #{sas.get('sad', '')}" if sas.get("sad") else "",
+            "sdd": f"+ SDD 체크리스트 결과 #{sas.get('sdd', '')}" if sas.get("sdd") else "",
+        }
+        for k, hint in attach_hints.items():
+            cell = self._result_widgets.get(k)
+            if cell is not None and hint:
+                cell.setToolTip(hint)
+
+    def _set_result(self, col_key: str, value: str):
+        cell = self._result_widgets.get(col_key)
+        if cell is None:
+            return
+        v = (value or "-").upper()
+        if v == "PASS":
+            fg, bg = "#15803D", "#DCFCE7"
+        elif v == "NG":
+            fg, bg = "#B91C1C", "#FEE2E2"
+        else:
+            fg, bg = C.T3, C.BG_CARD
+        cell.setText(v)
+        cell.setStyleSheet(
+            f"color:{fg}; background:{bg};"
+            f" border:1px solid {C.BDR}; padding:4px 6px;"
+            f" font-weight:700; font-size:11px;")
+
+    def _apply_cell(self, cell: QLabel, value: str):
+        """변경점 셀 한 칸의 색상 + 텍스트 적용.
+
+        value:
+          · 숫자/문자열 (트래커 ID) → 초록 + 링크
+          · 'N/A'                  → 노란색
+          · ''/'X'                 → 빨강 (없음)
+          · '-' / 그 외             → 회색
+        """
+        v = (value or "").strip()
+        if v.upper() == "N/A":
+            cell.setText("N/A")
+            cell.setStyleSheet(
+                f"color:#92400E; background:#FEF3C7;"
+                f" border:1px solid {C.BDR}; padding:4px 6px;"
+                f" font-weight:700;")
+            cell.setProperty("status", "yellow")
+            cell.setToolTip("이 페이지의 변경 없음 — 단계 N/A")
+            return
+        if v in ("", "X", "x", "-"):
+            cell.setText("없음")
+            cell.setStyleSheet(
+                f"color:#B91C1C; background:#FEE2E2;"
+                f" border:1px solid {C.BDR}; padding:4px 6px;"
+                f" font-weight:700;")
+            cell.setProperty("status", "red")
+            cell.setToolTip("이 변경점이 매칭된 트래커가 없음")
+            return
+        # 트래커 ID (숫자 또는 문자열) — 초록 + 링크
+        url = build_tracker_url(v)
+        cell.setText(f'<a href="{url}" style="color:#15803D; text-decoration:underline;">#{v}</a>')
+        cell.setStyleSheet(
+            f"color:#15803D; background:#DCFCE7;"
+            f" border:1px solid {C.BDR}; padding:4px 6px;"
+            f" font-weight:700;")
+        cell.setProperty("status", "green")
+        cell.setToolTip(f"트래커 #{v} 열기")
+
+    def _clear_data_rows(self):
+        """헤더(row 0) 외 모든 데이터 행 + Result 행 제거."""
+        for r in self._data_rows:
+            for w in r["widgets"].values():
+                try:
+                    w.setParent(None); w.deleteLater()
+                except Exception:
+                    pass
+        self._data_rows.clear()
+        for w in self._result_widgets.values():
+            try:
+                w.setParent(None); w.deleteLater()
+            except Exception:
+                pass
+        self._result_widgets.clear()
+        # Result 행 라벨 (col 0~1 spanned) 도 제거 — grid 의 last 행 위젯들 정리
+        # 단순화: Result 행은 항상 마지막에 생성되므로 _result_widgets 만 비워두면 OK
+
+    # ── 레거시 호환 — main.py 가 set_trackers 호출 ───────────
+    def set_trackers(self, trackers: dict):
+        """레거시 호환 — page_key 트래커 ID dict 를 받음.
+        새 양식에서는 변경점 행이 필요하므로, 변경점 없을 땐 빈 상태 표시.
+        실제 동작은 cb_controller.on_deploy_review_load 가 set_change_items +
+        apply_results 직접 호출하는 흐름으로 변경됨.
+        """
+        # 무시 — 새 컨트롤러가 set_change_items / apply_results 를 호출함.
+        pass
 
     # ── CB 업로드용 마크다운 ──────────────────────────────────
     def render_markdown(self) -> str:
         lines = [
             "## ⑨ 배포 리뷰",
             "",
-            "### 진행 점검표",
+            "### 변경점별 단계 점검표",
             "",
-            "| 항목 | 결과 | 링크 |",
-            "|---|---|---|",
+            "| 분류 | 사양변경 리스트 | SRS | SAD | SDD | 정적 | 코드리뷰 | 테스트 | OPEN/CLOSE |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
-        for key, label in _REVIEW_ITEMS:
-            tid = self._tracker_ids.get(key) or ""
-            result = "PASS" if tid else "FAIL"
-            link = (f"[#{tid}]({build_tracker_url(tid)})" if tid else "-")
-            lines.append(f"| {label} | **{result}** | {link} |")
+        cat_text_map = {"spec": "사양변경", "issue": "이슈", "hzt": "수평전개"}
+        for r in self._data_rows:
+            w = r["widgets"]
+            def _txt(cell):
+                # HTML 태그 제거하고 원시 텍스트 (트래커 ID 또는 N/A/없음)
+                t = cell.text() or ""
+                import re as _re
+                return _re.sub(r"<[^>]+>", "", t).strip() or "-"
+            lines.append(
+                f"| {cat_text_map.get(r['cat'], r['cat'] or '-')} | "
+                f"{r['title'] or '(제목 없음)'} | "
+                f"{_txt(w['srs'])} | {_txt(w['sad'])} | {_txt(w['sdd'])} | "
+                f"{_txt(w['static'])} | {_txt(w['review'])} | {_txt(w['test'])} | "
+                f"{w['state'].currentText()} |"
+            )
+        # Result 행
+        if self._result_widgets:
+            rw = self._result_widgets
+            lines.append(
+                f"| **Result** | — | "
+                f"**{rw['srs'].text()}** | **{rw['sad'].text()}** | **{rw['sdd'].text()}** | "
+                f"**{rw['static'].text()}** | **{rw['review'].text()}** | **{rw['test'].text()}** | "
+                f"**{rw['state'].text()}** |"
+            )
+        # 안내
+        lines += [
+            "",
+            "> ℹ️ N/A 포함 시 Result 는 PASS 로 판정됩니다 (사용자 협의 완료).",
+            "> ℹ️ 정적/테스트는 동일 트래커 첨부 시 모든 변경점에 동일 적용됩니다.",
+        ]
 
         # 결재란
         lines += [
@@ -478,19 +765,18 @@ class DeployReviewPage(BasePage):
             "|---|---|---|---|",
         ]
         for title, box in [
-            ("작성자",            self.box_writer),
-            ("검토자",            self.box_reviewer),
-            ("배포 승인자 (팀장)", self.box_approver),
+            ("작성자", self.box_writer),
+            ("검토자", self.box_reviewer),
         ]:
             d = box.to_dict()
             lines.append(
                 f"| {title} | {d['dept'] or '-'} | {d['name'] or '-'} "
                 f"| {d['date'] or '-'} |")
 
-        # 배포 승인자 안내
+        # 배포 승인은 CB 이슈 워크플로우에서 직접 처리
         lines += [
             "",
-            "> ⓘ 배포 승인자 (팀장) 칸은 본 Codebeamer 이슈에서 직접 결재해 주세요.",
+            "> ⓘ 배포 승인은 본 Codebeamer 이슈의 워크플로우에서 직접 진행해 주세요.",
         ]
         return "\n".join(lines)
 
@@ -501,8 +787,7 @@ class DeployReviewPage(BasePage):
             "approvals": {
                 "writer":   self.box_writer.to_dict(),
                 "reviewer": self.box_reviewer.to_dict(),
-                # 배포 승인자는 프로그램에서 입력하지 않으므로 빈 값 저장
-                "approver": self.box_approver.to_dict(),
+                # 배포 승인은 CB 측 워크플로우에서 처리 — 이 페이지에서는 저장 X
             },
         }
 
@@ -512,5 +797,4 @@ class DeployReviewPage(BasePage):
         approvals = d.get("approvals") or {}
         self.box_writer.apply_dict(approvals.get("writer") or {})
         self.box_reviewer.apply_dict(approvals.get("reviewer") or {})
-        # 배포 승인자 — 비활성이므로 복원 안 함 (혹시 이전 저장본에 값이 있어도 무시)
-        # — 향후 정책이 바뀌면 여기에 복원 로직 추가
+        # 'approver' 키가 옛 저장본에 있어도 무시 (배포 승인자 칸 제거됨)

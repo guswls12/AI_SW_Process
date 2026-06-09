@@ -1,0 +1,607 @@
+"""page_swe_v3_panel.py — ② SWE.1 SRS / ③ SWE.2 SAD / ④ SWE.3 SDD 페이지의
+재설계된 위젯들 (3단계, 2026-06).
+
+새 구조 (사용자 명세):
+  INPUT 탭 2개:
+    1) 변경 전/후 입력 + 변경점 불러오기 + 변경 없음 체크
+    2) ASPICE 체크리스트 (xlsx 로드 + 표시)
+
+  OUTPUT 탭 3개:
+    1) 변경점 VIEW (기존 ReqDiffView 재사용)
+    2) 변경점 매칭 결과 (사용자가 변경점 ↔ 요구사항 ID 매핑)
+    3) 체크리스트 AI 분석 결과 (기존 AiResultDropdownPanel 재사용)
+
+이 파일은 새 위젯 클래스만 정의:
+  · ChangePointLoadCard      — 변경점 트래커 불러오기 + 변경 없음 체크
+  · AspiceChecklistCard      — ASPICE 체크리스트 xlsx 로드/표시/편집
+  · ChangePointMatchingCard  — 변경점 ↔ 요구사항 ID 매칭 입력
+"""
+
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
+    QLineEdit, QPlainTextEdit, QCheckBox, QScrollArea, QTableWidget,
+    QTableWidgetItem, QHeaderView, QFileDialog, QComboBox,
+)
+
+from config import C
+
+
+# ══════════════════════════════════════════════════════════════
+#  ChangePointLoadCard — 변경점 트래커 불러오기 + 변경 없음 체크
+# ══════════════════════════════════════════════════════════════
+class ChangePointLoadCard(QFrame):
+    """변경점 불러오기 + 변경 없음 체크 카드.
+
+    이 페이지 (SRS/SAD/SDD) 의 변경점이 있다면 변경점 트래커에서 fetch.
+    변경점이 없으면 체크박스 + 코멘트로 N/A 처리 (⑧⑨ 에서 N/A 표시용).
+
+    Signals:
+      load_clicked() — [📥 변경점 불러오기] 클릭
+    """
+
+    load_clicked = pyqtSignal()
+
+    def __init__(self, name: str, parent=None):
+        super().__init__(parent)
+        self._name = name
+        self.setObjectName("cp_load_card")
+        self.setStyleSheet(
+            f"#cp_load_card {{ background:{C.BG_CARD};"
+            f"  border:1px solid {C.BDR}; border-radius:10px; }}")
+        self._items: list[dict] = []   # fetch 된 변경점 목록 (id, name)
+        self._build()
+
+    def _build(self):
+        cl = QVBoxLayout(self)
+        cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+
+        # 헤더
+        hdr = QFrame(); hdr.setFixedHeight(40)
+        hdr.setStyleSheet(
+            f"background:#EEF2F7; border-bottom:1px solid {C.BDR};"
+            f"border-top-left-radius:10px; border-top-right-radius:10px;")
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(14, 0, 14, 0); hl.setSpacing(8)
+        accent = QFrame(); accent.setFixedSize(3, 18)
+        accent.setStyleSheet(f"background:{C.BLUE}; border-radius:2px;")
+        hl.addWidget(accent)
+        t = QLabel("📦  변경점 불러오기")
+        t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
+        t.setStyleSheet(f"color:{C.BLUE}; background:transparent;")
+        hl.addWidget(t); hl.addStretch()
+
+        self._load_btn = QPushButton("📥  변경점 불러오기")
+        self._load_btn.setFixedHeight(28)
+        self._load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._load_btn.setToolTip(
+            "사양변경 트래커에서 변경점 목록을 가져옵니다.\n"
+            "변경 없음 체크 시 비활성화됩니다.")
+        self._load_btn.setStyleSheet(
+            f"QPushButton {{ background:{C.BLUE}; color:#FFFFFF;"
+            f"  border:1px solid {C.BLUE}; border-radius:5px;"
+            f"  padding:2px 14px; font-size:11px; font-weight:700; }}"
+            f"QPushButton:hover {{ background:{C.ACCENT_H}; }}"
+            f"QPushButton:disabled {{ background:#E2E8F0; color:#94A3B8;"
+            f"  border-color:#CBD5E1; }}")
+        self._load_btn.clicked.connect(self.load_clicked.emit)
+        hl.addWidget(self._load_btn)
+        cl.addWidget(hdr)
+
+        # 본문
+        body = QWidget(); body.setStyleSheet("background:transparent;")
+        bl = QVBoxLayout(body); bl.setContentsMargins(14, 12, 14, 14); bl.setSpacing(10)
+
+        # 변경 없음 체크박스
+        self._no_change_chk = QCheckBox(
+            f"이번 변경점에 {self._name} 변경 없음 — ⑧⑨ 단계에서 N/A 처리")
+        self._no_change_chk.setStyleSheet(
+            f"QCheckBox {{ color:{C.T1}; font-size:11px; font-weight:600;"
+            f"  background:transparent; }}"
+            f"QCheckBox::indicator {{ width:16px; height:16px; }}")
+        self._no_change_chk.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._no_change_chk.stateChanged.connect(self._on_no_change_changed)
+        bl.addWidget(self._no_change_chk)
+
+        # 변경 없음 코멘트 (체크 시에만 활성화)
+        self._no_change_comment = QPlainTextEdit()
+        self._no_change_comment.setPlaceholderText(
+            "변경 없음 사유를 입력 (예: 본 PR 에서는 요구사항 변경 없음 — System 단계만 수정)")
+        self._no_change_comment.setFixedHeight(60)
+        self._no_change_comment.setEnabled(False)
+        self._no_change_comment.setStyleSheet(
+            f"QPlainTextEdit {{ background:{C.BG_INPUT}; color:{C.T0};"
+            f"  border:1px solid {C.BDR}; border-radius:5px;"
+            f"  padding:6px 10px; font-size:11px; }}"
+            f"QPlainTextEdit:focus {{ border-color:{C.BLUE}; }}"
+            f"QPlainTextEdit:disabled {{ background:#F1F5F9;"
+            f"  color:#94A3B8; }}")
+        bl.addWidget(self._no_change_comment)
+
+        # 변경점 목록 표시 영역
+        self._items_label = QLabel("📂  [불러오기] 를 누르면 변경점 목록이 여기에 표시됩니다.")
+        self._items_label.setStyleSheet(
+            f"color:{C.T3}; background:transparent; padding:12px 0 4px 0;"
+            f" font-size:10px;")
+        bl.addWidget(self._items_label)
+
+        # 변경점 리스트 영역
+        self._items_holder = QFrame()
+        self._items_holder.setObjectName("items_holder")
+        self._items_holder.setStyleSheet(
+            "#items_holder { background:#F8FAFC; border:1px solid #E2E8F0;"
+            " border-radius:5px; }")
+        self._items_lay = QVBoxLayout(self._items_holder)
+        self._items_lay.setContentsMargins(10, 8, 10, 8); self._items_lay.setSpacing(4)
+        self._items_lay.addStretch(1)
+        bl.addWidget(self._items_holder, stretch=1)
+
+        cl.addWidget(body, stretch=1)
+
+    # ── 시그널 핸들러 ─────────────────────────────────────────
+    def _on_no_change_changed(self, state):
+        checked = state == Qt.CheckState.Checked.value
+        self._no_change_comment.setEnabled(checked)
+        self._load_btn.setEnabled(not checked)
+        if checked:
+            self._items_label.setText(
+                "ℹ  변경 없음으로 처리됨 — 변경점 불러오기 비활성화")
+
+    # ── 외부 API ──────────────────────────────────────────────
+    def apply_items(self, items: list):
+        """워커가 fetch 한 변경점 목록을 반영."""
+        self._items = list(items or [])
+        # 기존 라벨들 제거
+        while self._items_lay.count() > 1:   # stretch 만 남기기
+            it = self._items_lay.takeAt(0)
+            if it is None:
+                break
+            w = it.widget()
+            if w is not None:
+                w.setParent(None); w.deleteLater()
+        if not self._items:
+            self._items_label.setText("📭  등록된 변경점이 없습니다.")
+            return
+        self._items_label.setText(
+            f"📋  변경점 {len(self._items)} 건 — 매칭 결과 탭에서 요구사항 ID 와 연결하세요.")
+        for it in self._items:
+            cid = str(it.get("id") or "")
+            name = str(it.get("name") or "")
+            row = QLabel(f"  • #{cid}  {name}")
+            row.setFont(QFont(C.FUI, 10))
+            row.setStyleSheet(
+                f"color:{C.T1}; background:transparent; padding:2px 0;")
+            row.setWordWrap(True)
+            self._items_lay.insertWidget(self._items_lay.count() - 1, row)
+
+    def get_items(self) -> list:
+        return list(self._items)
+
+    def is_no_change(self) -> bool:
+        return self._no_change_chk.isChecked()
+
+    def get_no_change_comment(self) -> str:
+        return self._no_change_comment.toPlainText().strip()
+
+    def to_state(self) -> dict:
+        return {
+            "no_change": self._no_change_chk.isChecked(),
+            "comment":   self._no_change_comment.toPlainText().strip(),
+        }
+
+    def apply_state(self, st: dict):
+        if not isinstance(st, dict):
+            return
+        no_change = bool(st.get("no_change", False))
+        self._no_change_chk.setChecked(no_change)
+        self._no_change_comment.setPlainText(str(st.get("comment", "") or ""))
+
+
+# ══════════════════════════════════════════════════════════════
+#  AspiceChecklistCard — ASPICE 체크리스트 xlsx 로드/표시/편집
+# ══════════════════════════════════════════════════════════════
+class AspiceChecklistCard(QFrame):
+    """체크리스트 xlsx 를 로드해서 표 형태로 표시/편집.
+
+    컬럼: No | 체크리스트 | AI 분석 가능 여부 | 판정 | 상세 심사 내용
+    (의견 컬럼은 보존하되 화면엔 미표시 — 사용자 명세에 없음)
+
+    파일 로드 후 사용자가 K/L 컬럼만 직접 편집 가능.
+    AI 분석 결과는 컨트롤러가 apply_ai_results() 로 채움.
+
+    Signals:
+      file_loaded(str)  — xlsx 파일이 로드됨 (경로 인자)
+      ai_run_clicked()  — [🤖 AI 분석 실행] 클릭
+    """
+
+    file_loaded   = pyqtSignal(str)
+    ai_run_clicked = pyqtSignal()
+
+    JUDGE_OPTIONS = ["", "OK", "OK But", "NG", "N/A"]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("aspice_card")
+        self.setStyleSheet(
+            f"#aspice_card {{ background:{C.BG_CARD};"
+            f"  border:1px solid {C.BDR}; border-radius:10px; }}")
+        self._state: dict = {}
+        self._build()
+
+    def _build(self):
+        cl = QVBoxLayout(self)
+        cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+
+        # 헤더
+        hdr = QFrame(); hdr.setFixedHeight(40)
+        hdr.setStyleSheet(
+            f"background:#EEF2F7; border-bottom:1px solid {C.BDR};"
+            f"border-top-left-radius:10px; border-top-right-radius:10px;")
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(14, 0, 14, 0); hl.setSpacing(8)
+        accent = QFrame(); accent.setFixedSize(3, 18)
+        accent.setStyleSheet(f"background:{C.BLUE}; border-radius:2px;")
+        hl.addWidget(accent)
+        t = QLabel("📊  ASPICE 체크리스트")
+        t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
+        t.setStyleSheet(f"color:{C.BLUE}; background:transparent;")
+        hl.addWidget(t); hl.addStretch()
+
+        self._load_btn = QPushButton("📂  체크리스트 파일 로드")
+        self._load_btn.setFixedHeight(28)
+        self._load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._load_btn.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C.BLUE};"
+            f"  border:1px solid {C.BLUE}; border-radius:5px;"
+            f"  padding:2px 14px; font-size:11px; font-weight:700; }}"
+            f"QPushButton:hover {{ background:{C.BLUE_LT}; }}")
+        self._load_btn.clicked.connect(self._on_load_clicked)
+        hl.addWidget(self._load_btn)
+
+        self._ai_btn = QPushButton("🤖  AI 분석 실행")
+        self._ai_btn.setFixedHeight(28)
+        self._ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_btn.setToolTip(
+            "변경된 요구사항 카테고리에 매칭된 체크리스트 항목만 AI 가 분석.\n"
+            "나머지는 '(이전 버전 기준) 동일하며 변경없음' 으로 자동 채워집니다.")
+        self._ai_btn.setStyleSheet(
+            f"QPushButton {{ background:{C.BLUE}; color:#FFFFFF;"
+            f"  border:1px solid {C.BLUE}; border-radius:5px;"
+            f"  padding:2px 14px; font-size:11px; font-weight:700; }}"
+            f"QPushButton:hover {{ background:{C.ACCENT_H}; }}"
+            f"QPushButton:disabled {{ background:#E2E8F0; color:#94A3B8;"
+            f"  border-color:#CBD5E1; }}")
+        self._ai_btn.clicked.connect(self.ai_run_clicked.emit)
+        hl.addWidget(self._ai_btn)
+        cl.addWidget(hdr)
+
+        # 본문 — 메타 정보 + 표
+        body = QWidget(); body.setStyleSheet("background:transparent;")
+        bl = QVBoxLayout(body); bl.setContentsMargins(14, 12, 14, 14); bl.setSpacing(8)
+
+        # 메타 정보 (리뷰대상 문서 + 참조 문서 개수)
+        self._meta_lbl = QLabel(
+            "📭  체크리스트 파일이 로드되지 않았습니다. [📂 체크리스트 파일 로드] 를 누르세요.")
+        self._meta_lbl.setFont(QFont(C.FUI, 9))
+        self._meta_lbl.setStyleSheet(
+            f"color:{C.T3}; background:transparent;")
+        self._meta_lbl.setWordWrap(True)
+        bl.addWidget(self._meta_lbl)
+
+        # 체크리스트 표
+        self._table = QTableWidget(0, 5)
+        self._table.setHorizontalHeaderLabels(
+            ["No", "체크리스트", "AI 가능", "판정", "상세 심사 내용"])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet(
+            f"QTableWidget {{ background:#FFFFFF; color:{C.T0};"
+            f"  border:1px solid {C.BDR}; border-radius:5px;"
+            f"  font-size:10px; gridline-color:#E2E8F0;"
+            f"  alternate-background-color:#F8FAFC; }}"
+            f"QHeaderView::section {{ background:#EFF6FF; color:#1D4ED8;"
+            f"  border:none; border-right:1px solid #BFDBFE;"
+            f"  border-bottom:1px solid #BFDBFE;"
+            f"  padding:6px 8px; font-size:10px; font-weight:700; }}"
+            f"QTableWidget::item {{ padding:4px 6px; }}"
+            f"QTableWidget::item:selected {{ background:#DBEAFE; color:{C.T0}; }}")
+        hdr_v = self._table.horizontalHeader()
+        hdr_v.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_v.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr_v.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_v.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_v.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        bl.addWidget(self._table, stretch=1)
+
+        cl.addWidget(body, stretch=1)
+
+    # ── 파일 로드 ─────────────────────────────────────────────
+    def _on_load_clicked(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "ASPICE 체크리스트 파일 선택", "",
+            "Excel (*.xlsx);;모든 파일 (*.*)")
+        if not path:
+            return
+        try:
+            from core.checklist_parser import load_checklist
+            self._state = load_checklist(path)
+        except Exception as e:
+            self._meta_lbl.setText(f"❌  로드 실패: {str(e)[:200]}")
+            return
+        self._render_state()
+        self.file_loaded.emit(path)
+
+    def load_from_path(self, path: str):
+        """외부에서 경로를 직접 지정해 로드 (디폴트 체크리스트 등)."""
+        try:
+            from core.checklist_parser import load_checklist
+            self._state = load_checklist(path)
+        except Exception as e:
+            self._meta_lbl.setText(f"❌  로드 실패: {str(e)[:200]}")
+            return
+        self._render_state()
+
+    # ── 상태 → UI ─────────────────────────────────────────────
+    def _render_state(self):
+        st = self._state
+        if not st:
+            return
+        td   = st.get("target_doc") or ""
+        refs = st.get("references") or []
+        items = st.get("items") or []
+        self._meta_lbl.setText(
+            f"📄 {td}   ·   참조 문서 {len(refs)} 건   ·   체크 항목 {len(items)} 건"
+            if td else
+            f"📄 (리뷰대상 미지정)   ·   참조 문서 {len(refs)} 건   ·   체크 항목 {len(items)} 건"
+        )
+
+        # 표 갱신
+        self._table.setRowCount(len(items))
+        for r, it in enumerate(items):
+            # No (편집 불가)
+            no_item = QTableWidgetItem(str(it.get("no", "")))
+            no_item.setFlags(no_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            no_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._table.setItem(r, 0, no_item)
+            # 체크리스트 본문 (편집 불가, 다줄)
+            cl_item = QTableWidgetItem(str(it.get("content", "")))
+            cl_item.setFlags(cl_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._table.setItem(r, 1, cl_item)
+            # AI 가능 여부 (편집 불가)
+            ai_item = QTableWidgetItem(str(it.get("ai_ok", "")))
+            ai_item.setFlags(ai_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            ai_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._table.setItem(r, 2, ai_item)
+            # 판정 — 콤보박스
+            combo = QComboBox()
+            combo.addItems(self.JUDGE_OPTIONS)
+            current = (it.get("judge") or "").strip()
+            if current in self.JUDGE_OPTIONS:
+                combo.setCurrentText(current)
+            combo.setStyleSheet(
+                f"QComboBox {{ background:transparent; color:{C.T0};"
+                f"  border:none; padding:4px 8px; font-size:10px; }}")
+            combo.currentTextChanged.connect(
+                lambda txt, _r=r: self._on_judge_changed(_r, txt))
+            self._table.setCellWidget(r, 3, combo)
+            # 상세 심사 내용 (편집 가능)
+            det_item = QTableWidgetItem(str(it.get("detail", "")))
+            self._table.setItem(r, 4, det_item)
+
+        # 행 높이 자동 조정
+        self._table.resizeRowsToContents()
+        # detail 컬럼 변경 시 state 동기화
+        try:
+            self._table.itemChanged.disconnect()
+        except Exception:
+            pass
+        self._table.itemChanged.connect(self._on_item_changed)
+
+    def _on_judge_changed(self, row: int, value: str):
+        items = self._state.get("items") or []
+        if 0 <= row < len(items):
+            items[row]["judge"] = value
+
+    def _on_item_changed(self, item: QTableWidgetItem):
+        if item.column() != 4:
+            return
+        r = item.row()
+        items = self._state.get("items") or []
+        if 0 <= r < len(items):
+            items[r]["detail"] = item.text()
+
+    # ── AI 결과 반영 ───────────────────────────────────────────
+    def apply_ai_results(self, results_by_no: dict):
+        """AI 분석 결과를 해당 No 의 판정/상세에 채움.
+
+        results_by_no: {no: {"judge": "OK", "detail": "..."}}
+        AI 분석 가능 항목 (results_by_no 키) 만 채우고, 나머지는
+        '(이전 버전 기준) 내용과 동일하며 변경없음' 으로 채움.
+        """
+        items = self._state.get("items") or []
+        for it in items:
+            no = it.get("no")
+            res = results_by_no.get(no) if isinstance(results_by_no, dict) else None
+            if res:
+                it["judge"]  = res.get("judge")  or it.get("judge", "")
+                it["detail"] = res.get("detail") or it.get("detail", "")
+        # 표 다시 그리기
+        self._render_state()
+
+    # ── 외부 호출 ─────────────────────────────────────────────
+    def get_state(self) -> dict:
+        return dict(self._state)
+
+    def set_state(self, st: dict):
+        self._state = dict(st or {})
+        self._render_state()
+
+
+# ══════════════════════════════════════════════════════════════
+#  ChangePointMatchingCard — 변경점 ↔ 요구사항 ID 매칭 입력
+# ══════════════════════════════════════════════════════════════
+class ChangePointMatchingCard(QFrame):
+    """변경점 ↔ 요구사항 ID 매칭 카드.
+
+    상단: 변경점 목록 + 요구사항 ID 입력 칸
+    하단: 요구사항 ID 별로 정렬된 요구사항 DIFF (참조용)
+
+    Signals:
+      upload_clicked(list) — [📤 매칭 CB 업로드] 클릭 시 (mapping 리스트 인자)
+    """
+
+    upload_clicked = pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("cpm_card")
+        self.setStyleSheet(
+            f"#cpm_card {{ background:{C.BG_CARD};"
+            f"  border:1px solid {C.BDR}; border-radius:10px; }}")
+        self._items: list[dict] = []     # 변경점 목록
+        self._req_inputs: list[QLineEdit] = []
+        self._build()
+
+    def _build(self):
+        cl = QVBoxLayout(self)
+        cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+
+        # 헤더
+        hdr = QFrame(); hdr.setFixedHeight(40)
+        hdr.setStyleSheet(
+            f"background:#EEF2F7; border-bottom:1px solid {C.BDR};"
+            f"border-top-left-radius:10px; border-top-right-radius:10px;")
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(14, 0, 14, 0); hl.setSpacing(8)
+        accent = QFrame(); accent.setFixedSize(3, 18)
+        accent.setStyleSheet(f"background:{C.BLUE}; border-radius:2px;")
+        hl.addWidget(accent)
+        t = QLabel("🔗  변경점 매칭 결과")
+        t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
+        t.setStyleSheet(f"color:{C.BLUE}; background:transparent;")
+        hl.addWidget(t); hl.addStretch()
+
+        self._upload_btn = QPushButton("📤  매칭 결과 CB 업로드")
+        self._upload_btn.setFixedHeight(28)
+        self._upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._upload_btn.setToolTip(
+            "매칭된 (변경점 ↔ 요구사항 ID) 결과를 Codebeamer 에 업로드합니다.")
+        self._upload_btn.setStyleSheet(
+            f"QPushButton {{ background:{C.BLUE}; color:#FFFFFF;"
+            f"  border:1px solid {C.BLUE}; border-radius:5px;"
+            f"  padding:2px 14px; font-size:11px; font-weight:700; }}"
+            f"QPushButton:hover {{ background:{C.ACCENT_H}; }}")
+        self._upload_btn.clicked.connect(self._on_upload)
+        hl.addWidget(self._upload_btn)
+        cl.addWidget(hdr)
+
+        # 본문
+        body = QWidget(); body.setStyleSheet("background:transparent;")
+        bl = QVBoxLayout(body); bl.setContentsMargins(14, 12, 14, 14); bl.setSpacing(8)
+
+        # 안내문
+        hint = QLabel(
+            "ℹ  각 변경점 옆에 해당 요구사항 ID 를 입력하세요. (예: SwR_IF_001, SwR_FR_012)\n"
+            "    하단 영역에는 요구사항 DIFF (ID 별 정렬) 가 표시됩니다.")
+        hint.setFont(QFont(C.FUI, 9))
+        hint.setStyleSheet(f"color:{C.T3}; background:transparent;")
+        hint.setWordWrap(True)
+        bl.addWidget(hint)
+
+        # 변경점 ↔ 요구사항 ID 매칭 영역
+        self._mapping_scroll = QScrollArea()
+        self._mapping_scroll.setWidgetResizable(True)
+        self._mapping_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._mapping_scroll.setStyleSheet(
+            "QScrollArea { background:transparent; border:none; }")
+        self._mapping_inner = QWidget()
+        self._mapping_inner.setStyleSheet("background:transparent;")
+        self._mapping_lay = QVBoxLayout(self._mapping_inner)
+        self._mapping_lay.setContentsMargins(0, 6, 0, 6); self._mapping_lay.setSpacing(6)
+        self._mapping_lay.addStretch(1)
+        self._mapping_scroll.setWidget(self._mapping_inner)
+        bl.addWidget(self._mapping_scroll, stretch=2)
+
+        # 요구사항 DIFF 영역 (placeholder, 컨트롤러가 set_req_diff 로 채움)
+        diff_lbl = QLabel("📑  요구사항 DIFF (ID 별 정렬)")
+        diff_lbl.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
+        diff_lbl.setStyleSheet(
+            f"color:{C.T1}; background:transparent; padding:6px 0 0 0;")
+        bl.addWidget(diff_lbl)
+        self._diff_text = QPlainTextEdit()
+        self._diff_text.setReadOnly(True)
+        self._diff_text.setPlaceholderText(
+            "DIFF 추출 후 요구사항 ID 별로 정렬된 변경점이 여기에 표시됩니다.")
+        self._diff_text.setStyleSheet(
+            f"QPlainTextEdit {{ background:#F8FAFC; color:{C.T1};"
+            f"  border:1px solid {C.BDR}; border-radius:5px;"
+            f"  padding:8px 12px; font-family:Consolas; font-size:10px; }}")
+        bl.addWidget(self._diff_text, stretch=3)
+
+        cl.addWidget(body, stretch=1)
+
+    # ── 데이터 입력 ───────────────────────────────────────────
+    def apply_items(self, items: list):
+        """변경점 목록 반영 → 매핑 입력 행 생성."""
+        self._items = list(items or [])
+        # 기존 행 제거
+        while self._mapping_lay.count() > 1:
+            it = self._mapping_lay.takeAt(0)
+            if it is None:
+                break
+            w = it.widget()
+            if w is not None:
+                w.setParent(None); w.deleteLater()
+        self._req_inputs.clear()
+        if not self._items:
+            empty = QLabel("📭  변경점이 없습니다. [변경점 불러오기] 를 먼저 실행하세요.")
+            empty.setStyleSheet(
+                f"color:{C.T3}; background:transparent; padding:20px;")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._mapping_lay.insertWidget(0, empty)
+            return
+        for it in self._items:
+            cid  = str(it.get("id") or "")
+            name = str(it.get("name") or "")
+            row = QFrame()
+            row.setStyleSheet(
+                f"background:#F8FAFC; border:1px solid {C.BDR}; border-radius:5px;")
+            rl = QHBoxLayout(row); rl.setContentsMargins(10, 6, 10, 6); rl.setSpacing(8)
+            lbl = QLabel(f"#{cid}  {name}")
+            lbl.setFont(QFont(C.FUI, 10))
+            lbl.setStyleSheet(f"color:{C.T0}; background:transparent;")
+            lbl.setWordWrap(True)
+            rl.addWidget(lbl, 2)
+            le = QLineEdit()
+            le.setPlaceholderText("예: SwR_FR_001, SwR_NFR_005")
+            le.setFixedHeight(28)
+            le.setStyleSheet(
+                f"QLineEdit {{ background:#FFFFFF; color:{C.T0};"
+                f"  border:1px solid {C.BDR}; border-radius:4px;"
+                f"  padding:2px 8px; font-size:10px; }}"
+                f"QLineEdit:focus {{ border-color:{C.BLUE}; }}")
+            rl.addWidget(le, 1)
+            self._mapping_lay.insertWidget(self._mapping_lay.count() - 1, row)
+            self._req_inputs.append(le)
+
+    def set_req_diff(self, text: str):
+        """요구사항 DIFF (ID 별 정렬) 텍스트 영역에 표시."""
+        self._diff_text.setPlainText(text or "")
+
+    def get_req_diff(self) -> str:
+        """현재 요구사항 DIFF 텍스트."""
+        return self._diff_text.toPlainText()
+
+    # ── 결과 수집 ─────────────────────────────────────────────
+    def get_mappings(self) -> list:
+        """[{"change_id":..., "change_name":..., "req_ids": [str,...]}, ...]"""
+        out = []
+        for it, le in zip(self._items, self._req_inputs):
+            req_ids = [s.strip() for s in (le.text() or "").split(",") if s.strip()]
+            out.append({
+                "change_id":   str(it.get("id") or ""),
+                "change_name": str(it.get("name") or ""),
+                "req_ids":     req_ids,
+            })
+        return out
+
+    def _on_upload(self):
+        self.upload_clicked.emit(self.get_mappings())

@@ -19,17 +19,19 @@ import html
 import tempfile
 import datetime
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QDate, pyqtSignal
 from PyQt6.QtGui import QFont, QImage
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTextEdit, QScrollArea, QGraphicsDropShadowEffect,
-    QGridLayout, QFileDialog,
+    QLineEdit, QTextEdit, QDateEdit, QScrollArea,
+    QGraphicsDropShadowEffect, QGridLayout, QFileDialog,
 )
 from PyQt6.QtGui import QColor
 
 from config import C
 from ._common import BasePage, TabStack, PlaceholderBody
+# 라이트 모드 달력 QSS (배포 리뷰 페이지와 공유)
+from .page_deploy_review import _LIGHT_CAL_QSS
 
 
 # 차종 컬럼 (사용자 명세 — 중복 제거 후)
@@ -183,6 +185,44 @@ def _shadow(widget, blur: int = 14, dy: int = 3, alpha: int = 18):
     eff.setYOffset(dy)
     eff.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(eff)
+
+
+def _install_accordion(host, header, body):
+    """header 클릭 → body 토글 (▼/▶ 화살표). ChangeItemBlock / SpecChangeBlock /
+    HztBlock 의 공통 아코디언 헬퍼.
+
+    호스트에 다음을 노출:
+      host._body_widget   : 토글 대상 위젯 (외부 참조용)
+      host._body_collapsed: 현재 접힘 상태 (bool)
+      host._toggle_arrow  : 화살표 라벨
+      host.set_collapsed(bool): 외부에서 펼침/접힘 강제 — 칩 버튼이 호출
+    """
+    host._body_widget    = body
+    host._body_collapsed = False
+    arrow = QLabel("▼")
+    arrow.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
+    arrow.setStyleSheet(
+        f"color:{C.BLUE}; background:transparent; padding:0 4px;")
+    arrow.setToolTip("클릭해서 펼치기/접기")
+    header.layout().addWidget(arrow)
+    host._toggle_arrow = arrow
+    header.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _apply():
+        body.setVisible(not host._body_collapsed)
+        arrow.setText("▶" if host._body_collapsed else "▼")
+
+    def _toggle(_ev=None):
+        host._body_collapsed = not host._body_collapsed
+        _apply()
+
+    def _set_collapsed(collapsed: bool):
+        host._body_collapsed = bool(collapsed)
+        _apply()
+
+    # 외부 API (칩 버튼이 클릭 시 호출)
+    host.set_collapsed = _set_collapsed
+    header.mousePressEvent = lambda ev, _t=_toggle: _t()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -582,6 +622,8 @@ class ChangeItemBlock(QFrame):
         bl.addWidget(self._attach_holder)
 
         lay.addWidget(body)
+        # 아코디언 — 헤더 클릭으로 body 토글
+        _install_accordion(self, hdr, body)
 
     # ── 첨부 파일 핸들러 ──────────────────────────────────────
     def _on_add_files(self):
@@ -854,6 +896,8 @@ class SpecChangeBlock(QFrame):
         bl.addWidget(self._attach_holder)
 
         lay.addWidget(body)
+        # 아코디언 — 헤더 클릭으로 body 토글
+        _install_accordion(self, hdr, body)
 
     @staticmethod
     def _line_row(label: str, placeholder: str):
@@ -1063,6 +1107,8 @@ class HztBlock(QFrame):
         bl.addWidget(self.hzt_table)
 
         lay.addWidget(body)
+        # 아코디언 — 헤더 클릭으로 body 토글
+        _install_accordion(self, hdr, body)
 
     def _content_row(self):
         row = QHBoxLayout(); row.setSpacing(8)
@@ -1197,25 +1243,52 @@ class SpecChangePage(BasePage):
 
     def _build_content(self):
         # 레이아웃:
-        #   ┌────────────────────────────────┐
-        #   │ PR 정보 카드 (탭 공통, 항상 표시)        │
-        #   ├────────────────────────────────┤
-        #   │ [이슈] [사양변경] [수평전개]        │  ← TabBar
-        #   │ 탭별 컨텐츠                          │
-        #   └────────────────────────────────┘
+        #   ┌──────────────────────────────────┐
+        #   │ PR 정보 카드 (페이지 전체 공통, 아코디언)  │
+        #   ├──────────────────────────────────┤
+        #   │ [변경점 기록] [체크리스트 회의]              │  ← outer TabBar
+        #   │ ┌── 탭별 본문 ──────────────────┐         │
+        #   │ │ 변경점 기록: 이슈/사양변경/수평전개 TabStack │
+        #   │ │ 체크리스트 회의: 과거차/체크시트/AI 결과     │
+        #   │ └────────────────────────────────┘         │
+        #   └──────────────────────────────────┘
         body = QWidget()
         body.setStyleSheet(f"background:{C.BG_APP};")
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(0, 0, 0, 0); body_lay.setSpacing(0)
 
-        # (1) PR 정보 카드 — 탭 위에 고정 (모든 탭 공통)
+        # (1) PR 정보 카드 — 페이지 전체 공통 (아코디언으로 접힘 가능)
         top = QWidget(); top.setStyleSheet("background:transparent;")
         top_lay = QVBoxLayout(top)
         top_lay.setContentsMargins(20, 18, 20, 12); top_lay.setSpacing(0)
         top_lay.addWidget(self._build_project_card())
         body_lay.addWidget(top)
 
-        # (2) 탭으로 나뉜 본문 영역
+        # (2) 최상단 2탭 — 변경점 기록 / 체크리스트 회의
+        record_tab    = self._build_change_record_tab()
+        checklist_tab = self._build_checklist_meeting_tab()
+        self._outer_tabs = TabStack([
+            ("record",    "📒  변경점 기록",  record_tab),
+            ("checklist", "📝  체크리스트 회의", checklist_tab),
+        ])
+        body_lay.addWidget(self._outer_tabs, stretch=1)
+
+        self.add_body(body)
+
+        # 기본 1개 묶음 (각 이슈/사양변경/수평전개 탭마다)
+        self._add_item()
+        self._add_spec()
+        self._add_hzt()
+        # 탭 라벨 초기 갱신 (개수 = 1)
+        self._refresh_tab_counts()
+
+    # ── 변경점 기록 탭 — 기존 [이슈/사양변경/수평전개] TabStack 으로 감쌈 ──
+    def _build_change_record_tab(self) -> QWidget:
+        wrap = QWidget()
+        wrap.setStyleSheet(f"background:{C.BG_APP};")
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(0, 0, 0, 0); wl.setSpacing(0)
+
         issue_tab = self._build_issue_tab()
         spec_tab  = self._build_spec_change_tab()
         hzt_tab   = self._build_hzt_tab()
@@ -1225,14 +1298,184 @@ class SpecChangePage(BasePage):
             ("spec",  "📐  사양변경", spec_tab),
             ("hzt",   "🚗  수평전개", hzt_tab),
         ])
-        body_lay.addWidget(self._tabs, stretch=1)
+        wl.addWidget(self._tabs, stretch=1)
+        return wrap
 
-        self.add_body(body)
+    # ── 체크리스트 회의 탭 — SWE.1 의 과거차/체크시트/AI 결과 위젯 임베드 ──
+    def _build_checklist_meeting_tab(self) -> QWidget:
+        """ SWE.1 페이지에 있던 SRS 검토 워크플로우 (변경점/과거차 fetch +
+        체크리스트/검토/회의록 입력 + AI 인사이트) 위젯들을 이 탭에 임베드.
+        SrsReviewV2Controller 가 main.py 에서 이 페이지의 동일 속성을 보고
+        시그널 연결을 한다 (cb_historical_tab / checklist_review_tab).
+        """
+        from .page_srs_review_panel import (
+            CbHistoricalSubTab, ChecklistReviewSubTab, AiResultDropdownPanel,
+        )
 
-        # 기본 1개 묶음 (각 탭마다)
-        self._add_item()
-        self._add_spec()
-        self._add_hzt()
+        wrap = QWidget()
+        wrap.setStyleSheet(f"background:{C.BG_APP};")
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(0, 0, 0, 0); wl.setSpacing(0)
+
+        # 위젯들 — SrsReviewV2Controller 가 main.py 와이어링 시 참조
+        self.cb_historical_tab    = CbHistoricalSubTab()
+        self.checklist_review_tab = ChecklistReviewSubTab()
+        self.ai_result_panel      = AiResultDropdownPanel()
+
+        # 내부 탭 — 변경점/과거차 / 체크시트 / AI 결과
+        inner = TabStack([
+            ("hist",   "📦  변경점 + 과거차 불러오기", self.cb_historical_tab),
+            ("check",  "✏  체크시트 입력 + 검토",     self.checklist_review_tab),
+            ("ai",     "🤖  AI 인사이트 결과",        self.ai_result_panel),
+        ])
+        wl.addWidget(inner, stretch=1)
+        return wrap
+
+    # ── 탭 라벨에 (개수) 표시 ─────────────────────────────────
+    def _refresh_tab_counts(self):
+        """이슈/사양변경/수평전개 탭 라벨에 현재 묶음 개수 반영.
+        라벨 형식: '📋  이슈 (N)' 처럼 emoji + 이름 뒤에 괄호로 N 표시.
+        """
+        if not hasattr(self, "_tabs"):
+            return
+        try:
+            self._tabs.set_tab_label(
+                "issue", f"📋  이슈 ({len(self._items)})")
+            self._tabs.set_tab_label(
+                "spec",  f"📐  사양변경 ({len(self._spec_blocks)})")
+            self._tabs.set_tab_label(
+                "hzt",   f"🚗  수평전개 ({len(self._hzt_blocks)})")
+        except Exception:
+            pass
+        # 칩 바도 함께 갱신
+        self._refresh_chips_all()
+
+    # ── 묶음 헤더 칩 바 ───────────────────────────────────────
+    def _wrap_with_chip_bar(self, scroll: QScrollArea, cat: str) -> QWidget:
+        """탭 본문 scroll 위에 칩 바 + scroll 으로 묶은 컨테이너 반환.
+        cat: 'issue' / 'spec' / 'hzt' — _refresh_chips 가 분기 시 사용.
+        """
+        wrap = QWidget(); wrap.setStyleSheet(f"background:{C.BG_APP};")
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(0, 0, 0, 0); wl.setSpacing(0)
+
+        # 칩 바 — 가로 스크롤 가능
+        chip_bar_outer = QFrame()
+        chip_bar_outer.setObjectName("chip_bar_outer")
+        chip_bar_outer.setStyleSheet(
+            f"#chip_bar_outer {{ background:{C.BG_PANEL};"
+            f"  border-bottom:1px solid {C.BDR}; }}")
+        chip_bar_outer.setFixedHeight(40)
+
+        chip_hscroll = QScrollArea()
+        chip_hscroll.setWidgetResizable(True)
+        chip_hscroll.setFrameShape(QFrame.Shape.NoFrame)
+        chip_hscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        chip_hscroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        chip_hscroll.setStyleSheet("QScrollArea { background:transparent; border:none; }")
+
+        chip_inner = QWidget(); chip_inner.setStyleSheet("background:transparent;")
+        chip_lay = QHBoxLayout(chip_inner)
+        chip_lay.setContentsMargins(20, 4, 20, 4); chip_lay.setSpacing(6)
+        chip_lay.addStretch(1)
+        chip_hscroll.setWidget(chip_inner)
+
+        cbo_lay = QVBoxLayout(chip_bar_outer)
+        cbo_lay.setContentsMargins(0, 0, 0, 0); cbo_lay.setSpacing(0)
+        cbo_lay.addWidget(chip_hscroll)
+
+        wl.addWidget(chip_bar_outer)
+        wl.addWidget(scroll, stretch=1)
+
+        # 카테고리별 참조 보관
+        if cat == "issue":
+            self._issue_chip_lay = chip_lay
+            self._issue_scroll   = scroll
+        elif cat == "spec":
+            self._spec_chip_lay  = chip_lay
+            self._spec_scroll    = scroll
+        elif cat == "hzt":
+            self._hzt_chip_lay   = chip_lay
+            self._hzt_scroll     = scroll
+        return wrap
+
+    def _mk_chip(self, label: str, on_click) -> QPushButton:
+        """칩 버튼 한 개 생성."""
+        btn = QPushButton(label)
+        btn.setFixedHeight(26)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip("클릭하면 해당 묶음으로 스크롤 + 펼침")
+        btn.setStyleSheet(
+            f"QPushButton {{ background:#FFFFFF; color:{C.BLUE};"
+            f"  border:1px solid {C.BLUE}; border-radius:13px;"
+            f"  padding:1px 12px; font-size:11px; font-weight:600; }}"
+            f"QPushButton:hover {{ background:{C.BLUE_LT}; }}")
+        btn.clicked.connect(on_click)
+        return btn
+
+    def _focus_block(self, scroll: QScrollArea, block):
+        """칩 클릭 시 호출 — 박스 펼침 + 스크롤 영역에서 가시화."""
+        try:
+            if hasattr(block, "set_collapsed"):
+                block.set_collapsed(False)
+            scroll.ensureWidgetVisible(block, 0, 30)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _clear_chip_layout(chip_lay: QHBoxLayout):
+        """칩 레이아웃의 모든 칩 제거 (마지막 stretch 는 유지).
+        takeAt() 로 ownership 안전 처리 — layout/widget 동시 정리 시 heap corruption 회피.
+        """
+        # stretch(=widget 이 None 인 item) 1개만 남을 때까지 앞에서 takeAt
+        # (stretch 는 layout 의 마지막에 있음 — takeAt(0) 으로 앞 chip 부터 빠짐)
+        while chip_lay.count() > 1:
+            item = chip_lay.takeAt(0)
+            if item is None:
+                break
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+    def _refresh_chips_all(self):
+        """이슈/사양변경/수평전개 칩 모두 갱신."""
+        self._refresh_chips_cat("issue")
+        self._refresh_chips_cat("spec")
+        self._refresh_chips_cat("hzt")
+
+    def _refresh_chips_cat(self, cat: str):
+        """카테고리별 칩 바 재구성."""
+        if cat == "issue":
+            chip_lay = getattr(self, "_issue_chip_lay", None)
+            scroll   = getattr(self, "_issue_scroll", None)
+            blocks   = self._items
+            prefix   = "이슈"
+        elif cat == "spec":
+            chip_lay = getattr(self, "_spec_chip_lay", None)
+            scroll   = getattr(self, "_spec_scroll", None)
+            blocks   = self._spec_blocks
+            prefix   = "사양변경"
+        elif cat == "hzt":
+            chip_lay = getattr(self, "_hzt_chip_lay", None)
+            scroll   = getattr(self, "_hzt_scroll", None)
+            blocks   = self._hzt_blocks
+            prefix   = "수평전개"
+        else:
+            return
+        if chip_lay is None:
+            return
+        self._clear_chip_layout(chip_lay)
+        # 마지막(=stretch) 직전에 칩 삽입
+        for idx, block in enumerate(blocks, start=1):
+            label = f"{prefix}#{idx}"
+            chip = self._mk_chip(
+                label,
+                lambda _checked=False, _b=block, _s=scroll:
+                    self._focus_block(_s, _b),
+            )
+            insert_idx = chip_lay.count() - 1
+            chip_lay.insertWidget(insert_idx, chip)
 
     def _build_issue_tab(self) -> QWidget:
         """이슈 탭 본문 — 이슈 내용 헤더 + 이슈 묶음 리스트 + 추가 버튼.
@@ -1275,7 +1518,7 @@ class SpecChangePage(BasePage):
         self._inner_lay.addStretch()
 
         scroll.setWidget(inner)
-        return scroll
+        return self._wrap_with_chip_bar(scroll, "issue")
 
     def _build_spec_change_tab(self) -> QWidget:
         """사양변경 탭 본문 — 이슈 탭과 동일 레이아웃.
@@ -1320,7 +1563,7 @@ class SpecChangePage(BasePage):
 
         iv.addStretch()
         scroll.setWidget(inner)
-        return scroll
+        return self._wrap_with_chip_bar(scroll, "spec")
 
     def _build_hzt_tab(self) -> QWidget:
         """수평전개 탭 본문 — 이슈 탭과 동일 레이아웃.
@@ -1365,7 +1608,7 @@ class SpecChangePage(BasePage):
 
         iv.addStretch()
         scroll.setWidget(inner)
-        return scroll
+        return self._wrap_with_chip_bar(scroll, "hzt")
 
     def _build_section_header(self, title_text: str, *,
                               tip: str, on_register_all) -> QWidget:
@@ -1396,16 +1639,24 @@ class SpecChangePage(BasePage):
         return w
 
     def _build_project_card(self) -> QFrame:
+        """PR 정보 카드 — 헤더 클릭으로 펼침/접힘 토글 (아코디언).
+        수행일시는 달력 팝업 (QDateEdit) 으로 선택.
+        """
         card = QFrame(); card.setObjectName("proj_card")
         card.setStyleSheet(
             f"#proj_card {{ background:{C.BG_CARD};"
             f"  border:1px solid {C.BDR}; border-radius:10px; }}")
         vl = QVBoxLayout(card); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(0)
 
+        # ── 헤더 (클릭 → body 토글) ───────────────────────────
         hdr = QFrame(); hdr.setFixedHeight(40)
+        hdr.setObjectName("proj_hdr")
         hdr.setStyleSheet(
-            f"background:#EEF2F7; border-bottom:1px solid {C.BDR};"
-            f"border-top-left-radius:10px; border-top-right-radius:10px;")
+            f"#proj_hdr {{ background:#EEF2F7;"
+            f" border-bottom:1px solid {C.BDR};"
+            f" border-top-left-radius:10px; border-top-right-radius:10px; }}"
+            f"#proj_hdr:hover {{ background:#E2E8F0; }}")
+        hdr.setCursor(Qt.CursorShape.PointingHandCursor)
         hl = QHBoxLayout(hdr); hl.setContentsMargins(14, 0, 14, 0); hl.setSpacing(8)
         accent = QFrame(); accent.setFixedSize(3, 18)
         accent.setStyleSheet(f"background:{C.BLUE}; border-radius:2px;")
@@ -1414,6 +1665,12 @@ class SpecChangePage(BasePage):
         t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
         t.setStyleSheet(f"color:{C.BLUE}; background:transparent;")
         hl.addWidget(t); hl.addStretch()
+        # 펼침/접힘 화살표
+        self._proj_toggle_arrow = QLabel("▼")
+        self._proj_toggle_arrow.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
+        self._proj_toggle_arrow.setStyleSheet(
+            f"color:{C.BLUE}; background:transparent; padding:0 2px;")
+        hl.addWidget(self._proj_toggle_arrow)
         vl.addWidget(hdr)
 
         body = QWidget(); body.setStyleSheet("background:transparent;")
@@ -1423,14 +1680,53 @@ class SpecChangePage(BasePage):
         r2, self.proj_ver_old   = self._info_row("변경 전 버전", "예) 1.2.0")
         r3, self.proj_ver_new   = self._info_row("변경 후 버전", "예) 1.2.1")
         r4, self.proj_author    = self._info_row("설계자",       "예) 홍길동")
-        r5, self.proj_date      = self._info_row("수행일시",     "예) 2026-05-26 14:00")
+        # 수행일시 — QDateEdit (calendarPopup, 라이트 QSS)
+        r5, self.proj_date      = self._date_row("수행일시")
         r6, self.proj_attendees = self._info_row("참석자",       "예) 홍길동, 김철수, 이영희")
         for r in (r0, r2, r3, r4, r5, r6):
             bl.addLayout(r)
 
         vl.addWidget(body)
         _shadow(card)
+
+        # ── 아코디언 토글 핸들러 ─────────────────────────────
+        self._proj_body = body
+        self._proj_collapsed = False
+
+        def _toggle(_ev=None):
+            self._proj_collapsed = not self._proj_collapsed
+            body.setVisible(not self._proj_collapsed)
+            self._proj_toggle_arrow.setText("▶" if self._proj_collapsed else "▼")
+
+        # 헤더 클릭 → 토글 (mousePressEvent monkey-patch)
+        hdr.mousePressEvent = lambda ev, _t=_toggle: _t()
         return card
+
+    @staticmethod
+    def _date_row(label_text: str):
+        """수행일시 전용 — QDateEdit + 달력 팝업."""
+        row = QHBoxLayout(); row.setSpacing(8)
+        lbl = QLabel(label_text)
+        lbl.setFixedWidth(96)
+        lbl.setFont(QFont(C.FUI, 10))
+        lbl.setStyleSheet(f"color:{C.T2}; background:transparent;")
+        row.addWidget(lbl)
+        de = QDateEdit()
+        de.setObjectName("le_info")
+        de.setCalendarPopup(True)
+        de.setDisplayFormat("yyyy-MM-dd")
+        de.setDate(QDate.currentDate())
+        de.setFixedHeight(28)
+        de.setStyleSheet(
+            f"QDateEdit {{ background:{C.BG_INPUT}; color:{C.T0};"
+            f"  border:1px solid {C.BDR}; border-radius:4px;"
+            f"  padding:2px 8px; font-size:11px; }}"
+            f"QDateEdit:focus {{ border-color:{C.BLUE}; }}")
+        cal = de.calendarWidget()
+        if cal is not None:
+            cal.setStyleSheet(_LIGHT_CAL_QSS)
+        row.addWidget(de)
+        return row, de
 
     def _build_change_section_header(self) -> QWidget:
         w = QWidget()
@@ -1494,10 +1790,12 @@ class SpecChangePage(BasePage):
         self._reset_all()
 
     def _is_empty(self) -> bool:
-        """프로젝트 정보 & 이슈가 모두 빈 상태인지 검사."""
+        """프로젝트 정보 & 이슈가 모두 빈 상태인지 검사.
+        수행일시(QDateEdit)는 항상 값이 있으므로 빈 상태 판정에서 제외.
+        """
         for fld in (self.proj_name,
                     self.proj_ver_old, self.proj_ver_new, self.proj_author,
-                    self.proj_date, self.proj_attendees):
+                    self.proj_attendees):
             if fld.text().strip():
                 return False
         if len(self._items) != 1:
@@ -1528,11 +1826,12 @@ class SpecChangePage(BasePage):
 
     def _reset_all(self):
         """프로젝트 정보 + 모든 이슈/사양변경/수평전개 본문 초기화."""
-        # 프로젝트 정보 필드 비우기
+        # 프로젝트 정보 필드 비우기 (proj_date QDateEdit 은 오늘 날짜로 리셋)
         for fld in (self.proj_name,
                     self.proj_ver_old, self.proj_ver_new, self.proj_author,
-                    self.proj_date, self.proj_attendees):
+                    self.proj_attendees):
             fld.clear()
+        self.proj_date.setDate(QDate.currentDate())
         # 이슈 묶음 모두 제거 후 빈 묶음 1개 재생성
         for block in list(self._items):
             block.deleteLater()
@@ -1548,6 +1847,8 @@ class SpecChangePage(BasePage):
             block.deleteLater()
         self._hzt_blocks.clear()
         self._add_hzt()
+        # 탭 라벨 갱신 (각 1개씩)
+        self._refresh_tab_counts()
 
     # ── 묶음 add / delete ─────────────────────────────────────
     def _add_item(self):
@@ -1557,6 +1858,7 @@ class SpecChangePage(BasePage):
         block.register_requested.connect(self._register_item)
         self._items.append(block)
         self._items_lay.addWidget(block)
+        self._refresh_tab_counts()
 
     def _delete_item(self, block: ChangeItemBlock):
         if len(self._items) <= 1:
@@ -1570,6 +1872,7 @@ class SpecChangePage(BasePage):
         # 인덱스 재번호
         for i, b in enumerate(self._items, start=1):
             b.set_index(i)
+        self._refresh_tab_counts()
 
     def _register_item(self, block: ChangeItemBlock):
         try:
@@ -1591,6 +1894,7 @@ class SpecChangePage(BasePage):
         block.register_requested.connect(self._register_spec)
         self._spec_blocks.append(block)
         self._spec_lay.addWidget(block)
+        self._refresh_tab_counts()
 
     def _delete_spec(self, block: "SpecChangeBlock"):
         if len(self._spec_blocks) <= 1:
@@ -1602,6 +1906,7 @@ class SpecChangePage(BasePage):
         block.deleteLater()
         for i, b in enumerate(self._spec_blocks, start=1):
             b.set_index(i)
+        self._refresh_tab_counts()
 
     def _register_spec(self, block: "SpecChangeBlock"):
         """블록 [📤 등록] 클릭 — 단건 등록 시그널을 그대로 emit."""
@@ -1627,6 +1932,7 @@ class SpecChangePage(BasePage):
         block.register_requested.connect(self._register_hzt)
         self._hzt_blocks.append(block)
         self._hzt_lay.addWidget(block)
+        self._refresh_tab_counts()
 
     def _delete_hzt(self, block: "HztBlock"):
         if len(self._hzt_blocks) <= 1:
@@ -1638,6 +1944,7 @@ class SpecChangePage(BasePage):
         block.deleteLater()
         for i, b in enumerate(self._hzt_blocks, start=1):
             b.set_index(i)
+        self._refresh_tab_counts()
 
     def _register_hzt(self, block: "HztBlock"):
         self.hzt_register_requested.emit(block.get_data())
@@ -1679,7 +1986,14 @@ class SpecChangePage(BasePage):
             self.proj_ver_old.setText(proj.get("ver_old", "") or "")
             self.proj_ver_new.setText(proj.get("ver_new", "") or "")
             self.proj_author.setText(proj.get("author", "") or "")
-            self.proj_date.setText(proj.get("pr_date", "") or "")
+            # 수행일시 (QDateEdit) — 'yyyy-MM-dd' 우선, 'yyyy-MM-dd HH:mm' 도 허용
+            pr_date = str(proj.get("pr_date", "") or "").strip()
+            if pr_date:
+                # 공백 앞부분만 사용 (구버전 '2026-05-26 14:00' 형식 흡수)
+                pr_date_only = pr_date.split()[0]
+                qd = QDate.fromString(pr_date_only, "yyyy-MM-dd")
+                if qd.isValid():
+                    self.proj_date.setDate(qd)
             self.proj_attendees.setText(proj.get("attendees", "") or "")
         items = state.get("items") or []
         if isinstance(items, list) and items:
@@ -1726,6 +2040,8 @@ class SpecChangePage(BasePage):
                     self._hzt_blocks[-1].set_data(d)
             for i, b in enumerate(self._hzt_blocks, start=1):
                 b.set_index(i)
+        # 복원 끝 — 탭 라벨 개수 갱신
+        self._refresh_tab_counts()
 
     def save_state(self):
         """현재 상태를 spec_state.json 에 저장 — 앱 종료 시 호출."""
@@ -1818,6 +2134,9 @@ class SpecChangePage(BasePage):
             for i, b in enumerate(self._hzt_blocks, start=1):
                 b.set_index(i)
 
+        # 모든 카테고리 적용 끝 — 탭 라벨 개수 갱신
+        self._refresh_tab_counts()
+
         return {
             "issue": len(issues),
             "spec":  len(specs),
@@ -1845,7 +2164,8 @@ class SpecChangePage(BasePage):
             "ver_old":   self.proj_ver_old.text().strip(),
             "ver_new":   self.proj_ver_new.text().strip(),
             "author":    self.proj_author.text().strip(),
-            "pr_date":   self.proj_date.text().strip(),
+            "pr_date":   (self.proj_date.date().toString("yyyy-MM-dd")
+                          if self.proj_date.date().isValid() else ""),
             "attendees": self.proj_attendees.text().strip(),
             # 호환용 (_build_summary 가 meta['date'] 폴백을 today() 로 함)
             "date":      "",
@@ -1894,7 +2214,11 @@ class SpecChangePage(BasePage):
             ("수행일시",       self.proj_date),
             ("참석자",         self.proj_attendees),
         ]:
-            v = field.text().strip()
+            # QDateEdit 도 .text() 지원하지만 안전하게 분기 — QDateEdit 은 date().toString
+            if isinstance(field, QDateEdit):
+                v = field.date().toString("yyyy-MM-dd") if field.date().isValid() else ""
+            else:
+                v = field.text().strip()
             if v:
                 rows.append(
                     f'  <tr><td style="{td_lbl}">{_html.escape(label)}</td>'

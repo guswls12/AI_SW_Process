@@ -1078,16 +1078,28 @@ class CbController:
         # 배너 + 버튼 로딩 상태
         page.set_load_running(True, tracker_id)
 
-        from workers.cb_items_worker import CbItemsWorker
         fetcher = CbFetcher(url, user, pw)
-        worker = CbItemsWorker(fetcher, tracker_id)
+
+        # ⑤ 정적 / ⑦ 테스트 — 첨부/댓글까지 가져오는 CbReviewFetchWorker
+        # 그 외 (②③④) — 기존 CbItemsWorker (이슈 목록만)
+        if page_key in ("static", "test"):
+            from workers.cb_review_fetch_worker import CbReviewFetchWorker
+            worker = CbReviewFetchWorker(fetcher, tracker_id)
+            done_handler = (
+                lambda data, k=page_key, tid=tracker_id:
+                    self._on_review_load_done(k, tid, data))
+        else:
+            from workers.cb_items_worker import CbItemsWorker
+            worker = CbItemsWorker(fetcher, tracker_id)
+            done_handler = (
+                lambda items, k=page_key, tid=tracker_id:
+                    self._on_swe_load_done(k, tid, items))
+
         thread = QThread()
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(lambda msg: mw._sb.showMessage(msg))
-        worker.done.connect(
-            lambda items, k=page_key, tid=tracker_id:
-                self._on_swe_load_done(k, tid, items))
+        worker.done.connect(done_handler)
         worker.error.connect(
             lambda msg, k=page_key: self._on_swe_load_error(k, msg))
         worker.done.connect(thread.quit)
@@ -1109,6 +1121,28 @@ class CbController:
         label = self._SWE_PAGE_LABELS.get(page_key, page_key)
         self._mw._sb.showMessage(
             f"✅  {label} — 트래커 #{tracker_id} 등록 {n}건 확인")
+
+    def _on_review_load_done(self, page_key: str, tracker_id: str, data: dict):
+        """⑤ 정적 / ⑦ 테스트 페이지 done — 첨부 OK/NG + 댓글 리스트 반영."""
+        page = self._get_swe_page(page_key)
+        if page is None:
+            return
+        items = data.get("items") or []
+        n = len(items)
+        # 배너 — 빈 트래커면 empty, 아니면 단순 카운트 표시
+        if n == 0:
+            page.status_banner.set_empty(tracker_id)
+        else:
+            page.status_banner.set_items(tracker_id, items)
+        # 본문 — 첨부/댓글 결과 위젯에 그대로 전달
+        try:
+            page.apply_result(data)
+        except Exception as e:
+            self._mw._sb.showMessage(f"⚠  결과 표시 실패: {e}")
+        label = self._SWE_PAGE_LABELS.get(page_key, page_key)
+        ok_ng = "OK" if data.get("has_attachment") else "NG"
+        self._mw._sb.showMessage(
+            f"✅  {label} — 트래커 #{tracker_id}  첨부 {ok_ng}  /  이슈 {n}건")
 
     def _on_swe_load_error(self, page_key: str, msg: str):
         page = self._get_swe_page(page_key)
@@ -1149,49 +1183,202 @@ class CbController:
             getattr(mw, "_project_version", "") or "",
         )
 
-    # ── ⑧ 불러오기 ─────────────────────────────────────────
+    # ── ⑧ 불러오기 (4단계 새 양식) ──────────────────────────
     def on_open_items_load(self):
-        """⑧ 페이지 [📥 불러오기] — ⑤⑦ 첨부 / ⑥ 취약점 표 파싱 → 자동 채움."""
+        """⑧ 페이지 [📥 불러오기] — 4단계 새 양식.
+
+        흐름:
+          1) ① 사양변경 페이지 변경점 (이슈/사양변경/수평전개) 수집 → 행 생성
+          2) ②③④ 페이지의 change_load_card 변경 없음 / change_match_card 매핑으로
+             변경점별 SRS/SAD/SDD 결과 (O / N/A / X) 산출
+          3) ⑤⑦ 페이지 has_result() — 같은 트래커 첨부 여부 (협의 완료)
+          4) ⑥ 코드리뷰는 보류 ('-') — 사용자 협의 대기
+        """
         mw = self._mw
         page = getattr(mw, "_page_open", None)
         if page is None:
             return
 
-        # ⑤ 정적 검증 / ⑦ 설계자 테스트 — 첨부 파일 N개 ≥ 1
-        try:
-            static_has = bool(mw._page_static.get_attachments())
-        except Exception:
-            static_has = False
-        try:
-            test_has = bool(mw._page_test.get_attachments())
-        except Exception:
-            test_has = False
+        # 1) 변경점 수집
+        change_items = self._collect_change_items()
+        page.set_change_items(change_items)
+        if not change_items:
+            mw._sb.showMessage(
+                "⚠  ① 사양변경 페이지에 입력된 변경점이 없습니다.")
+            return
 
-        # ⑥ 코드 리뷰 — 취약점 분석 마크다운에서 High/Mid/Low 건수 파싱
-        vuln_md = ""
-        try:
-            vuln_md = mw._result._vuln_view.text() or ""
-        except Exception:
-            vuln_md = ""
-        from view.pages.page_open_items import parse_vuln_severity_counts
-        counts = parse_vuln_severity_counts(vuln_md)
+        # 2) ②③④ 결과 산출
+        results_by_id = self._compute_swe_results(change_items)
 
-        page.apply_loaded(
-            static_has=static_has,
-            test_has=test_has,
-            review_counts=counts,
+        # 3) ⑤⑦ — 같은 정적/테스트 트래커
+        try:
+            static_has = bool(mw._page_static.has_result())
+        except Exception:
+            try:
+                static_has = bool(mw._page_static.get_attachments())
+            except Exception:
+                static_has = False
+        try:
+            test_has = bool(mw._page_test.has_result())
+        except Exception:
+            try:
+                test_has = bool(mw._page_test.get_attachments())
+            except Exception:
+                test_has = False
+
+        page.apply_results(
+            results_by_id,
+            static=("O" if static_has else "X"),
+            review="-",   # 4단계 보류
+            test  =("O" if test_has else "X"),
         )
         mw._sb.showMessage(
-            f"📥  ⑧ 결과 자동 채움 — 정적:{'O' if static_has else 'X'} / "
-            f"리뷰 H{counts['high']}/M{counts['mid']}/L{counts['low']} / "
-            f"테스트:{'O' if test_has else 'X'}")
+            f"📥  ⑧ 자동 채움 — 변경점 {len(change_items)}건 / "
+            f"정적:{'O' if static_has else 'X'} / "
+            f"테스트:{'O' if test_has else 'X'} / 코드리뷰:보류")
 
-    # ── ⑨ 불러오기 ─────────────────────────────────────────
+    # ── ⑧⑨ 공통: ① 사양변경 페이지에서 변경점 수집 ──────────
+    def _collect_change_items(self) -> list:
+        """① 의 [이슈/사양변경/수평전개] 묶음을 단일 리스트로.
+        반환: [{"cat":"issue/spec/hzt", "title": str, "id": str}, ...]
+        제목 없는 빈 묶음은 스킵.
+        """
+        mw = self._mw
+        page_spec = getattr(mw, "_page_spec", None)
+        if page_spec is None:
+            return []
+        out: list = []
+        try:
+            for i, b in enumerate(getattr(page_spec, "_items", []), start=1):
+                d = b.get_data() or {}
+                if (d.get("title") or "").strip():
+                    out.append({"cat": "issue", "title": d["title"].strip(),
+                                "id": f"issue#{i}"})
+        except Exception:
+            pass
+        try:
+            for i, b in enumerate(getattr(page_spec, "_spec_blocks", []), start=1):
+                d = b.get_data() or {}
+                if (d.get("title") or "").strip():
+                    out.append({"cat": "spec", "title": d["title"].strip(),
+                                "id": f"spec#{i}"})
+        except Exception:
+            pass
+        try:
+            for i, b in enumerate(getattr(page_spec, "_hzt_blocks", []), start=1):
+                d = b.get_data() or {}
+                if (d.get("title") or "").strip():
+                    out.append({"cat": "hzt", "title": d["title"].strip(),
+                                "id": f"hzt#{i}"})
+        except Exception:
+            pass
+        return out
+
+    def _compute_swe_results(self, change_items: list) -> dict:
+        """변경점별 SRS/SAD/SDD 결과 산출.
+
+        규칙:
+          · ② 변경 없음 체크 → 모든 변경점에 SRS = N/A
+          · ② 매핑에 이 변경점이 있고 req_ids 1개 이상 → O
+          · 그 외 → X
+          · ③ SAD, ④ SDD 동일
+        매칭은 change_id 우선, 폴백으로 제목 substring.
+        """
+        mw = self._mw
+        out: dict = {ci["id"]: {} for ci in change_items}
+        for col_key, page_attr in (("srs", "_page_srs"),
+                                   ("sad", "_page_sad"),
+                                   ("sdd", "_page_sdd")):
+            page = getattr(mw, page_attr, None)
+            if page is None:
+                for ci in change_items:
+                    out[ci["id"]][col_key] = "X"
+                continue
+            try:
+                no_change = bool(page.change_load_card.is_no_change())
+            except Exception:
+                no_change = False
+            try:
+                mappings = page.change_match_card.get_mappings() or []
+            except Exception:
+                mappings = []
+            for ci in change_items:
+                if no_change:
+                    out[ci["id"]][col_key] = "N/A"
+                    continue
+                matched = False
+                for m in mappings:
+                    mid   = str(m.get("change_id") or "")
+                    mname = str(m.get("change_name") or "")
+                    reqs  = m.get("req_ids") or []
+                    if not reqs:
+                        continue
+                    if mid and mid == ci["id"]:
+                        matched = True; break
+                    title = ci.get("title") or ""
+                    if mname and title and (title in mname or mname in title):
+                        matched = True; break
+                out[ci["id"]][col_key] = "O" if matched else "X"
+        return out
+
+    def _compute_deploy_swe_results(self, change_items: list,
+                                    trackers: dict) -> dict:
+        """⑨ 배포리뷰 변경점별 SRS/SAD/SDD 셀 값 산출.
+
+        반환 dict 값:
+          · 트래커 ID 문자열  → 매칭 + 트래커 등록됨 (초록)
+          · 'N/A'             → 변경 없음 체크
+          · ''                → 매칭 없음 (빨강)
+        """
+        mw = self._mw
+        out: dict = {ci["id"]: {} for ci in change_items}
+        for col_key, page_attr in (("srs", "_page_srs"),
+                                   ("sad", "_page_sad"),
+                                   ("sdd", "_page_sdd")):
+            page = getattr(mw, page_attr, None)
+            tid = str((trackers or {}).get(col_key) or "").strip()
+            if page is None:
+                for ci in change_items:
+                    out[ci["id"]][col_key] = ""
+                continue
+            try:
+                no_change = bool(page.change_load_card.is_no_change())
+            except Exception:
+                no_change = False
+            try:
+                mappings = page.change_match_card.get_mappings() or []
+            except Exception:
+                mappings = []
+            for ci in change_items:
+                if no_change:
+                    out[ci["id"]][col_key] = "N/A"
+                    continue
+                matched = False
+                for m in mappings:
+                    mid   = str(m.get("change_id") or "")
+                    mname = str(m.get("change_name") or "")
+                    reqs  = m.get("req_ids") or []
+                    if not reqs:
+                        continue
+                    if mid and mid == ci["id"]:
+                        matched = True; break
+                    title = ci.get("title") or ""
+                    if mname and title and (title in mname or mname in title):
+                        matched = True; break
+                # 매칭 + 트래커 ID 있으면 → 트래커 ID 셀
+                out[ci["id"]][col_key] = tid if (matched and tid) else (
+                    "" if not matched else "")
+        return out
+
+    # ── ⑨ 불러오기 (4단계 새 양식) ─────────────────────────
     def on_deploy_review_load(self):
-        """⑨ 페이지 [📥 불러오기] — project_state JSON 에서 트래커 ID 갱신.
+        """⑨ 페이지 [📥 불러오기] — 4단계 새 양식.
 
-        시작 다이얼로그에서 입력한 9개 트래커 ID + 저장된 결재란/⑧ 입력값을
-        모두 복원한다.
+        흐름:
+          1) ① 사양변경 페이지 변경점 수집 → 행 생성
+          2) ②③④ 트래커 ID + 매핑 / 변경 없음 → 셀 값 산출 (트래커ID / N/A / 없음)
+          3) ⑤⑦ 트래커 ID 동일 적용 (정적/테스트)
+          4) ②③④ 체크리스트 결과 트래커 ID → Result 행 첨부 안내문
         """
         mw = self._mw
         page = getattr(mw, "_page_deploy", None)
@@ -1206,8 +1393,46 @@ class CbController:
                 "프로젝트명/버전을 먼저 입력해주세요.")
             return
 
+        # 1) 변경점 수집
+        change_items = self._collect_change_items()
+        page.set_change_items(change_items)
+        if not change_items:
+            mw._sb.showMessage(
+                "⚠  ① 사양변경 페이지에 입력된 변경점이 없습니다.")
+            # 결재란 등 복원만
+            st = project_state.load_state(proj, ver)
+            try:
+                page.apply_state(st.get("deploy_review") or {})
+            except Exception:
+                pass
+            return
+
+        # 2) ②③④ 결과 — 트래커 ID / N/A / X
         trackers = project_state.get_all_trackers(proj, ver)
-        page.set_trackers(trackers)
+        results_by_id = self._compute_deploy_swe_results(change_items, trackers)
+
+        # 3) ⑤⑦ 트래커 ID (같은 정적/테스트 트래커)
+        static_tid = str(trackers.get("static") or "").strip()
+        test_tid   = str(trackers.get("test")   or "").strip()
+
+        # SAS 첨부 안내문 — 각 페이지의 체크리스트 결과 트래커 ID
+        sas = {
+            "srs": trackers.get("srs") or "",
+            "sad": trackers.get("sad") or "",
+            "sdd": trackers.get("sdd") or "",
+        }
+
+        page.apply_results(
+            results_by_id,
+            static_link=static_tid,
+            review_text="-",
+            test_link=test_tid,
+            sas=sas,
+        )
+
+        n_chg = len(change_items)
+        mw._sb.showMessage(
+            f"📥  ⑨ 자동 채움 — 변경점 {n_chg}건 / 트래커 매핑 완료")
 
         # ⑧ 페이지의 입력값 + ⑨ 결재란도 같은 JSON 에 보관되므로 복원 시도
         st = project_state.load_state(proj, ver)

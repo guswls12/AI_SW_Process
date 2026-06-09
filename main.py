@@ -36,6 +36,7 @@ from controllers.cb_controller   import CbController
 from controllers.diff_controller import DiffController
 from controllers.ai_controller   import AiController
 from controllers.srs_review_v2_controller import SrsReviewV2Controller
+from controllers.swe_review_controller import SweReviewController
 
 
 # ══════════════════════════════════════════════════════════════
@@ -373,12 +374,19 @@ class MainWindow(QMainWindow):
         self._cb   = CbController(self)
         self._diff = DiffController(self)
         self._ai   = AiController(self)
-        # ── SRS 검토 컨트롤러 (새 워크플로우 v2) ──────────────────
-        # SrsReviewV2Controller 가 cb_historical_tab + checklist_review_tab 와 연결.
+        # ── 체크리스트 회의 컨트롤러 (구 SRS 검토 v2 — 이름만 유지) ──
+        # 2-B (2026-06) 부터 호스트 페이지 = ① 사양변경 페이지의 '체크리스트
+        # 회의' 탭.
         self._srs_review_v2 = None
-        if (getattr(self._page_srs, "cb_historical_tab", None) is not None
-                and getattr(self._page_srs, "checklist_review_tab", None) is not None):
-            self._srs_review_v2 = SrsReviewV2Controller(self, self._page_srs)
+        if (getattr(self._page_spec, "cb_historical_tab", None) is not None
+                and getattr(self._page_spec, "checklist_review_tab", None) is not None):
+            self._srs_review_v2 = SrsReviewV2Controller(self, self._page_spec)
+
+        # ── ②③④ SWE 새 워크플로우 컨트롤러 (3-D, 2026-06) ──────
+        # 변경점 불러오기 / AI 분석 실행 / CB 업로드 시그널 연결.
+        self._swe_srs = SweReviewController(self, "srs", self._page_srs)
+        self._swe_sad = SweReviewController(self, "sad", self._page_sad)
+        self._swe_sdd = SweReviewController(self, "sdd", self._page_sdd)
 
         # ── shim (컨트롤러 호환) ──────────────────────────────
         self._result = ResultShim(self._page_review, self._page_srs)

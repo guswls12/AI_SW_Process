@@ -264,7 +264,7 @@ class CbSectionWidget(QWidget):
         self._add_name_edit.setStyleSheet(
             f"background:{C.BG_CARD}; color:{C.T0}; font-size:10px;"
             f"border:1px solid {C.BDR}; border-radius:4px; padding:1px 5px;")
-        self._add_id_edit.setPlaceholderText("트래커 ID (예: 8688001)")
+        self._add_id_edit.setPlaceholderText("예 : 트래커 URL 또는 트래커 ID 입력")
         self._add_id_edit.setFixedHeight(22)
         self._add_id_edit.setStyleSheet(
             f"background:{C.BG_CARD}; color:{C.T0}; font-size:10px;"

@@ -195,7 +195,7 @@ class ProjectStartDialog(QDialog):
             label = ps.PAGE_LABELS.get(key, key)
             le = QLineEdit()
             le.setPlaceholderText(
-                "예: https://codebeamer.slworld.com/cb/tracker/9486521 또는 9486521")
+                "예 : 트래커 URL 또는 트래커 ID 입력")
             self._apply_input_style(le)
             self._tracker_inputs[key] = le
             il.addLayout(self._row(label, le, label_width=140))

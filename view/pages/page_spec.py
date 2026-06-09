@@ -35,7 +35,8 @@ from ._common import BasePage, TabStack, PlaceholderBody
 # 차종 컬럼 (사용자 명세 — 중복 제거 후)
 VEHICLE_COLUMNS = [
     "NQ5 PE", "MQ4i", "LX3", "JW", "TK1", "LQ2", "SP3",
-    "KU FL", "SG2", "NX5(30Ah)", "NX5(20Ah)", "SX3", "Qy2i", "NQ6",
+    "KU FL", "SG2", "NX5(30Ah)", "NX5(20Ah)", "SX3", "QY2i",
+    "NQ6(30Ah)", "NQ6(20Ah)",
 ]
 
 
@@ -323,10 +324,27 @@ class HorizontalDeployTable(QFrame):
         """차종별 상태 ('미적용' / '적용' / 'NA') 를 dict 로 반환."""
         return {v: cell.get_state() for v, cell in zip(VEHICLE_COLUMNS, self._cells)}
 
+    # 구버전 차종명 → 신버전 매핑 (기존 spec_state.json 호환).
+    # · 'Qy2i' → 'QY2i'  (대소문자 통일)
+    # · 'NQ6'  → 'NQ6(30Ah)'  (30Ah/20Ah 분리 — 기존 단일 NQ6 는 30Ah 로 간주)
+    _LEGACY_VEHICLE_RENAME = {
+        "Qy2i": "QY2i",
+        "NQ6":  "NQ6(30Ah)",
+    }
+
     def set_state(self, state: dict):
-        """문자열 상태 또는 레거시 bool 모두 허용."""
+        """문자열 상태 또는 레거시 bool 모두 허용.
+        구버전 차종명 (Qy2i / NQ6) 이 들어있으면 신버전 키로 자동 매핑.
+        """
+        if not isinstance(state, dict):
+            state = {}
+        # 레거시 키 마이그레이션 — 새 키가 비어있을 때만 옮김 (덮어쓰기 방지)
+        migrated = dict(state)
+        for old_k, new_k in self._LEGACY_VEHICLE_RENAME.items():
+            if old_k in migrated and new_k not in migrated:
+                migrated[new_k] = migrated[old_k]
         for v, cell in zip(VEHICLE_COLUMNS, self._cells):
-            cell.set_state(state.get(v, "미적용"))
+            cell.set_state(migrated.get(v, "미적용"))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -784,18 +802,17 @@ class SpecChangeBlock(QFrame):
         body = QWidget(); body.setStyleSheet("background:transparent;")
         bl = QVBoxLayout(body); bl.setContentsMargins(14, 12, 14, 14); bl.setSpacing(10)
 
-        # 제목 / JIRA 링크
-        r0, self.le_title = self._line_row("제목",      "예) 사양 변경 제목")
+        # 제목
+        r0, self.le_title = self._line_row("제목", "예) 사양 변경 제목")
         bl.addLayout(r0)
-        r1, self.le_jira  = self._line_row("JIRA 링크", "예) https://jira.example.com/browse/ABC-123")
-        bl.addLayout(r1)
 
         # 변경 내용 (다른 텍스트 필드보다 큰 영역)
-        bl.addLayout(self._text_row("변경 내용", "사양 변경 내용을 작성하세요"))
+        rc, self.te_content = self._text_row("변경 내용", "사양 변경 내용을 작성하세요")
+        bl.addLayout(rc)
 
-        # 발생시점
-        r2, self.le_occurrence = self._line_row("발생시점", "예) P2 (NX5)")
-        bl.addLayout(r2)
+        # 변경 사유
+        rr, self.te_reason = self._text_row("변경 사유", "변경이 필요해진 사유를 작성하세요")
+        bl.addLayout(rr)
 
         # 수평전개
         sub_hdr = QLabel("수평전개")
@@ -853,6 +870,9 @@ class SpecChangeBlock(QFrame):
         return row, le
 
     def _text_row(self, label: str, placeholder: str):
+        """라벨 + PasteableTextEdit 한 줄 — (row, te) 튜플 반환.
+        호출 측이 te 를 self.te_<name> 으로 명시 할당.
+        """
         row = QHBoxLayout(); row.setSpacing(8)
         lbl = QLabel(label)
         lbl.setFixedWidth(96)
@@ -866,8 +886,7 @@ class SpecChangeBlock(QFrame):
         te.setFixedHeight(120)
         te.image_pasted.connect(self._on_image_pasted)
         row.addWidget(te)
-        self.te_content = te
-        return row
+        return row, te
 
     # ── 첨부 파일 핸들러 ──────────────────────────────────────
     def _on_add_files(self):
@@ -910,9 +929,8 @@ class SpecChangeBlock(QFrame):
     def get_data(self) -> dict:
         return {
             "title":       self.le_title.text().strip(),
-            "jira":        self.le_jira.text().strip(),
             "content":     self.te_content.toPlainText().strip(),
-            "occurrence":  self.le_occurrence.text().strip(),
+            "reason":      self.te_reason.toPlainText().strip(),
             "hzt":         self.hzt_table.get_state(),
             "attachments": [c.path for c in self._attach_chips],
         }
@@ -921,9 +939,8 @@ class SpecChangeBlock(QFrame):
         if not isinstance(d, dict):
             return
         self.le_title.setText(d.get("title", "") or "")
-        self.le_jira.setText(d.get("jira", "") or "")
         self.te_content.setPlainText(d.get("content", "") or "")
-        self.le_occurrence.setText(d.get("occurrence", "") or "")
+        self.te_reason.setPlainText(d.get("reason", "") or "")
         hzt = d.get("hzt") or {}
         if isinstance(hzt, dict):
             self.hzt_table.set_state(hzt)
@@ -934,11 +951,9 @@ class SpecChangeBlock(QFrame):
     def is_empty(self) -> bool:
         if self.le_title.text().strip():
             return False
-        if self.le_jira.text().strip():
-            return False
         if self.te_content.toPlainText().strip():
             return False
-        if self.le_occurrence.text().strip():
+        if self.te_reason.toPlainText().strip():
             return False
         if self._attach_chips:
             return False
@@ -949,9 +964,8 @@ class SpecChangeBlock(QFrame):
 
     def reset(self):
         self.le_title.clear()
-        self.le_jira.clear()
         self.te_content.clear()
-        self.le_occurrence.clear()
+        self.te_reason.clear()
         for chip in list(self._attach_chips):
             self._attach_lay.removeWidget(chip)
             chip.deleteLater()
@@ -1600,8 +1614,8 @@ class SpecChangePage(BasePage):
         for block in self._spec_blocks:
             data = block.get_data()
             # 빈 묶음(제목/내용 모두 공백)은 스킵
-            if not any((data.get("title"), data.get("jira"),
-                        data.get("content"), data.get("occurrence"))):
+            if not any((data.get("title"),
+                        data.get("content"), data.get("reason"))):
                 continue
             self.spec_register_requested.emit(data)
 
@@ -1776,9 +1790,8 @@ class SpecChangePage(BasePage):
                 self._add_spec()
                 self._spec_blocks[-1].set_data({
                     "title":      parsed.get("title")    or "",
-                    "jira":       parsed.get("jira")     or "",
                     "content":    parsed.get("content")  or "",
-                    "occurrence": parsed.get("occurrence") or "",
+                    "reason":     parsed.get("reason")   or "",
                     "hzt":        parsed.get("hzt")      or {},
                     "attachments": [],
                 })
@@ -1955,14 +1968,13 @@ class SpecChangePage(BasePage):
 
     @staticmethod
     def render_spec_change_md(d: dict) -> str:
-        """사양변경 본문(제목/JIRA/변경 내용/발생시점/수평전개) 을 마크다운으로
+        """사양변경 본문(제목/변경 내용/변경 사유/수평전개) 을 마크다운으로
         렌더링. 모두 비어있으면 빈 문자열.
         """
-        title      = (d.get("title")      or "").strip()
-        jira       = (d.get("jira")       or "").strip()
-        content    = (d.get("content")    or "").strip()
-        occurrence = (d.get("occurrence") or "").strip()
-        if not any((title, jira, content, occurrence)):
+        title   = (d.get("title")   or "").strip()
+        content = (d.get("content") or "").strip()
+        reason  = (d.get("reason")  or "").strip()
+        if not any((title, content, reason)):
             return ""
 
         heading = "# 📐 사양변경"
@@ -1970,17 +1982,13 @@ class SpecChangePage(BasePage):
             heading += f" — {title}"
         lines = ["<!-- SLAI:cat=spec -->", heading, ""]
 
-        jira_card = _md_jira_link_card(jira)
-        if jira_card:
-            lines += [jira_card, ""]
-
         if content:
             lines.append(_md_section_label("📐 변경 내용"))
             lines += ["", _md_normalize_user_text(_md_expand_image_markers(content)), ""]
 
-        if occurrence:
-            lines.append(_md_section_label("🕒 발생시점"))
-            lines += ["", _md_normalize_user_text(occurrence), ""]
+        if reason:
+            lines.append(_md_section_label("💡 변경 사유"))
+            lines += ["", _md_normalize_user_text(_md_expand_image_markers(reason)), ""]
 
         hzt_table = _md_hzt_table(d.get("hzt") or {})
         if hzt_table:

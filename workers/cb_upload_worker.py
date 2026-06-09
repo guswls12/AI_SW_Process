@@ -36,8 +36,10 @@ HZT_VEHICLE_FIELD_MAP = {
     "NX5(30Ah)":  "NX5_30Ah",
     "NX5(20Ah)":  "NX5_20Ah",
     "SX3":        "SX3",
-    "Qy2i":       "Qy2i",
-    "NQ6":        "NQ6",
+    "QY2i":       "QY2i",
+    # NQ6 는 30Ah/20Ah 두 변형으로 분리 (NX5 패턴 동일)
+    "NQ6(30Ah)":  "NQ6_30Ah",
+    "NQ6(20Ah)":  "NQ6_20Ah",
 }
 
 

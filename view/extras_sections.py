@@ -219,7 +219,7 @@ class CbSpecSection(QWidget):
         self._tracker_input.setObjectName("le_info")
         self._tracker_input.setFixedHeight(28)
         self._tracker_input.setPlaceholderText(
-            "예) 9508556 또는 https://.../cb/tracker/9508556")
+            "예 : 트래커 URL 또는 트래커 ID 입력")
         ctrl.addWidget(self._tracker_input, 1)
 
         self._fetch_btn = QPushButton("📥  가져오기")

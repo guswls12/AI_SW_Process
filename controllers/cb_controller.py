@@ -358,7 +358,7 @@ class CbController:
     # ──────────────────────────────────────────────────────────
     def on_register_spec_change(self, data: dict):
         """사양변경 탭 본문 [📤 등록] 버튼 핸들러.
-        제목/JIRA/변경 내용/발생시점/수평전개/첨부 → 새 CB 이슈 1개로 등록.
+        제목/변경 내용/변경 사유/수평전개/첨부 → 새 CB 이슈 1개로 등록.
         """
         from view.pages.page_spec import SpecChangePage
         self._register_single_card(
@@ -366,9 +366,9 @@ class CbController:
             item_md_func=SpecChangePage.render_spec_change_md,
             kind_label="사양변경",
             body_hint=("본문: 프로젝트 정보 + 사양변경 "
-                       "(제목 / JIRA 링크 / 변경 내용 / 발생시점 / 수평전개)"),
-            # 발생시점 — CB 의 동명 커스텀 필드에 매핑
-            hzt_extra_fields={"발생시점": data.get("occurrence") or ""},
+                       "(제목 / 변경 내용 / 변경 사유 / 수평전개)"),
+            # 사양변경에는 발생시점/JIRA 필드 없음 — HZT 추가 필드도 비움
+            hzt_extra_fields=None,
         )
 
     # ──────────────────────────────────────────────────────────
@@ -484,6 +484,11 @@ class CbController:
         if content:
             label = "[변경 내용]" if kind_label == "사양변경" else "[수평전개 내용]"
             hzt_body_sections.append(f"{label}\n{content}")
+        # 사양변경 — 변경 사유도 hzt 본문에 함께 (있을 때만)
+        if kind_label == "사양변경":
+            reason = (data.get("reason") or "").strip()
+            if reason:
+                hzt_body_sections.append(f"[변경 사유]\n{reason}")
         jira = (data.get("jira") or "").strip()
         if jira:
             hzt_body_sections.append(f"[JIRA]\n{jira}")

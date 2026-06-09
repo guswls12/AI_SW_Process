@@ -63,7 +63,7 @@ class CbUploadDialog(QDialog):
         self._tracker_input = QLineEdit()
         self._tracker_input.setText(last_tracker_id)
         self._tracker_input.setPlaceholderText(
-            "예: https://codebeamer.slworld.com/cb/tracker/9486521 또는 9486521")
+            "예 : 트래커 URL 또는 트래커 ID 입력")
         self._tracker_input.setStyleSheet(self._line_style())
         self._tracker_input.setMinimumHeight(32)
         vlay.addWidget(self._tracker_input)
@@ -102,7 +102,7 @@ class CbUploadDialog(QDialog):
         self._hzt_tracker_input = QLineEdit()
         self._hzt_tracker_input.setText(last_hzt_tracker_id)
         self._hzt_tracker_input.setPlaceholderText(
-            "수평전개 트래커 URL 또는 ID (예: .../cb/tracker/9486800)")
+            "예 : 트래커 URL 또는 트래커 ID 입력")
         self._hzt_tracker_input.setStyleSheet(self._line_style())
         self._hzt_tracker_input.setMinimumHeight(28)
         self._hzt_tracker_input.setEnabled(self._chk_hzt.isChecked())

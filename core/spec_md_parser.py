@@ -135,6 +135,9 @@ _SECTION_LABELS = {
     },
     "spec": {
         "📐 변경 내용":     "content",
+        "💡 변경 사유":     "reason",
+        # 구버전 호환 — 옛 저장본/CB 이슈 본문이 발생시점을 갖고 있어도 무시되지
+        # 않고 occurrence 키로 보존 (set_data 가 알 수 없는 키는 자연스럽게 폐기).
         "🕒 발생시점":      "occurrence",
         "🚗 수평전개":      "hzt_section",
     },
@@ -335,9 +338,10 @@ def _extract_hzt_table(md: str) -> dict:
         return {}
 
     # ── 차종 표 후보 키워드 (헤더에 1개라도 있으면 차종 표로 간주) ──
-    # page_spec.VEHICLE_COLUMNS 의 prefix — 'NQ5', 'MQ4' 등 부분 매칭
+    # page_spec.VEHICLE_COLUMNS 의 prefix — 'NQ5', 'MQ4' 등 부분 매칭.
+    # 'QY2' / 'Qy2' 둘 다 포함 — 기존 저장본 호환.
     VEHICLE_HINTS = ("NQ5", "MQ4", "LX3", "JW", "TK1", "LQ2", "SP3",
-                     "KU", "SG2", "NX5", "SX3", "Qy2", "NQ6")
+                     "KU", "SG2", "NX5", "SX3", "QY2", "Qy2", "NQ6")
 
     # 모든 <tr> 추출
     trs = _HZT_TR_RE.findall(md)
@@ -413,13 +417,15 @@ def parse_item_md(md: str) -> dict:
         "analysis":   "",
         "action":     "",
         "content":    "",
+        "reason":     "",
         "occurrence": "",
         "hzt":        _extract_hzt_table(text),
         "raw_md":     text,
     }
     if category:
         sections = _extract_sections(text, category)
-        for k in ("phenom", "analysis", "action", "content", "occurrence"):
+        for k in ("phenom", "analysis", "action",
+                  "content", "reason", "occurrence"):
             if sections.get(k):
                 out[k] = sections[k]
     return out

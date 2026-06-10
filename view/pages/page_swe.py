@@ -27,7 +27,7 @@ import re
 
 from config import C
 from view.ui_result import ReqInput, ReqDiffView
-from ._common import BasePage, TabStack, PlaceholderBody
+from ._common import BasePage, TabStack
 from .page_srs_review_panel import (
     # 새 SRS 검토 워크플로우 UI (INPUT 2·3 탭 + OUTPUT AI 결과)
     CbHistoricalSubTab, ChecklistReviewSubTab,

@@ -16,18 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config import C
-from ._common import BasePage, PlaceholderBody
-
-
-class PlaceholderPage(BasePage):
-    """추후 설계 예정 페이지 공통 클래스."""
-
-    def __init__(self, number: str, title: str, parent=None):
-        super().__init__(number, title, parent)
-        self.add_body(PlaceholderBody(
-            message=f"{title} — 추후 설계 예정",
-            icon="🛠",
-        ))
+from ._common import BasePage
 
 
 # ══════════════════════════════════════════════════════════════

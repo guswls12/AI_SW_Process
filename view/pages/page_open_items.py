@@ -430,8 +430,8 @@ class OpenItemsPage(BasePage):
             _apply_result(r["widgets"]["sad"],    res.get("sad", "X"))
             _apply_result(r["widgets"]["sdd"],    res.get("sdd", "X"))
             _apply_result(r["widgets"]["static"], static or "X")
-            # 코드리뷰 — review 인자 우선, 없으면 행별 res["review"], 그것도 없으면 "-"
-            review_val = review or res.get("review", "-")
+            # 코드리뷰 — review 인자 우선, 없으면 행별 res["review"], 그것도 없으면 "X"
+            review_val = review or res.get("review", "X")
             _apply_result(r["widgets"]["review"], review_val)
             _apply_result(r["widgets"]["test"],   test   or "X")
 

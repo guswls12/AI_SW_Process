@@ -38,6 +38,15 @@ class CbController:
         self._mw = main_window
         # 앱 시작 시 디스크의 CB 마크다운을 로드해 컨텍스트로 보유
         self.cb_context: str = load_cb_context()
+        # ★ 업로드 워커 핸들 (가비지 컬렉션 방지를 위해 인스턴스로 보관)
+        self._upload_thread = None
+        self._upload_worker = None
+        # ★ ① 사양 변경 페이지 트래커 fetch 워커 핸들
+        self._spec_load_thread = None
+        self._spec_load_worker = None
+        # ★ ② ③ ④ SWE 페이지 트래커 fetch 워커 핸들 (page_key 별 분리)
+        # {page_key: (QThread, QObject)} — 동시 한 페이지만 실행 가정
+        self._swe_load_jobs: dict = {}
 
     def _default_tracker_id(self, page_key: str) -> str:
         """프로젝트 정보 다이얼로그에서 입력한 트래커 ID 반환.
@@ -53,15 +62,6 @@ class CbController:
             return project_state.get_tracker_id(proj, ver, page_key) or ""
         except Exception:
             return ""
-        # ★ 업로드 워커 핸들 (가비지 컬렉션 방지를 위해 인스턴스로 보관)
-        self._upload_thread = None
-        self._upload_worker = None
-        # ★ ① 사양 변경 페이지 트래커 fetch 워커 핸들
-        self._spec_load_thread = None
-        self._spec_load_worker = None
-        # ★ ② ③ ④ SWE 페이지 트래커 fetch 워커 핸들 (page_key 별 분리)
-        # {page_key: (QThread, QObject)} — 동시 한 페이지만 실행 가정
-        self._swe_load_jobs: dict = {}
 
     # ── 다이얼로그 열기 ─────────────────────────────────────
     def open_dialog(self):
@@ -341,6 +341,8 @@ class CbController:
             "고객OPEN": data.get("customer_open") or "",
         }
         self._upload_thread = QThread()
+        # _on_upload_done 가 by_local_id 매핑 저장에 사용 — 단일 변경점 (issue#N)
+        self._last_single_local_id = f"issue#{idx}"
         self._upload_worker = CbUploadWorker(
             fetcher, upload["tracker_id"],
             summary, description, item_title,
@@ -693,6 +695,8 @@ class CbController:
                 "summary":     data["title"].strip(),
                 "body_md":     body_md,
                 "attachments": data.get("attachments") or [],
+                # ① 사양변경 로컬 ID — _on_bulk_upload_done 이 by_local_id 매핑 저장에 사용
+                "_local_id":   f"issue#{idx}",
                 # 수평전개 동기용 — 차종별 상태값 + JIRA 링크 + 본문
                 "hzt_state":   data.get("hzt") or {},
                 "jira_link":   data.get("jira") or "",
@@ -713,6 +717,8 @@ class CbController:
             if upload.get("hzt_enabled") else "")
 
         self._upload_thread = QThread()
+        # _on_bulk_upload_done 가 by_local_id 매핑 저장 시 사용
+        self._last_bulk_items = list(items)
         self._upload_worker = CbBulkUploadWorker(
             fetcher, upload["tracker_id"], items,
             project_name=mw._input.get_project_name() or "AIreview",
@@ -853,12 +859,17 @@ class CbController:
                 hzt_body_sections.append(f"[JIRA]\n{jira}")
             hzt_body = "\n\n".join(hzt_body_sections)
 
+            # 로컬 ID prefix — _on_bulk_upload_done 이 by_local_id 매핑 저장에 사용
+            #   kind_label "사양변경" → spec#i, "수평전개" → hzt#i
+            _kind_prefix = {"사양변경": "spec", "수평전개": "hzt"}.get(
+                kind_label, "item")
             bulk_items.append({
                 "idx":         i,
                 "title":       data.get("title", "").strip() or f"항목 #{i}",
                 "summary":     data.get("title", "").strip() or f"항목 #{i}",
                 "body_md":     body_md,
                 "attachments": data.get("attachments") or [],
+                "_local_id":   f"{_kind_prefix}#{i}",
                 "hzt_state":   data.get("hzt") or {},
                 "jira_link":   jira,
                 "hzt_body":    hzt_body,
@@ -874,6 +885,8 @@ class CbController:
                        if upload.get("hzt_enabled") else "")
 
         self._upload_thread = QThread()
+        # _on_bulk_upload_done 가 by_local_id 매핑 저장 시 사용
+        self._last_bulk_items = list(bulk_items)
         self._upload_worker = CbBulkUploadWorker(
             fetcher, upload["tracker_id"], bulk_items,
             project_name=mw._input.get_project_name() or "AIreview",
@@ -902,6 +915,48 @@ class CbController:
         failures = info.get("failures", []) or []
         n_ok = len(results)
         n_fail = len(failures)
+
+        # ── 로컬 ID → 새 CB 이슈 ID 매핑 저장 ─────────────────
+        # bulk_items 의 _local_id ("issue#1"/"spec#2"/"hzt#3") 와 새 CB 이슈 ID 를
+        # project_state.upload_results["spec"]["by_local_id"] 에 저장.
+        # ②③④ 의 매칭 카드는 CB ID 로 변경점을 식별하므로, ⑨ 점검표에서
+        # 로컬 ID → CB ID 변환 시 이 매핑을 사용한다.
+        try:
+            last_items = getattr(self, "_last_bulk_items", None) or []
+            if last_items and results:
+                from core import project_state
+                proj = getattr(mw, "_project_name", "") or ""
+                ver  = getattr(mw, "_project_version", "") or ""
+                if proj and ver:
+                    idx_to_local = {}
+                    for it in last_items:
+                        lid = str(it.get("_local_id") or "").strip()
+                        if lid:
+                            idx_to_local[int(it.get("idx") or 0)] = lid
+                    by_local: dict = {}
+                    for r in results:
+                        iid = str(r.get("item_id") or "").strip()
+                        lid = idx_to_local.get(int(r.get("idx") or 0)) or ""
+                        if iid and lid:
+                            by_local[lid] = iid
+                    if by_local:
+                        st = project_state.load_state(proj, ver) or {}
+                        ur = st.get("upload_results") or {}
+                        if not isinstance(ur, dict):
+                            ur = {}
+                        spec_ur = ur.get("spec") or {}
+                        if not isinstance(spec_ur, dict):
+                            spec_ur = {}
+                        existing = spec_ur.get("by_local_id") or {}
+                        if not isinstance(existing, dict):
+                            existing = {}
+                        existing.update(by_local)
+                        spec_ur["by_local_id"] = existing
+                        ur["spec"] = spec_ur
+                        st["upload_results"] = ur
+                        project_state.save_state(proj, ver, st)
+        except Exception as e:
+            mw._sb.showMessage(f"⚠  업로드 결과 매핑 저장 실패: {str(e)[:120]}")
 
         # 상태바
         if n_fail == 0:
@@ -959,6 +1014,35 @@ class CbController:
 
         item_id = info.get("item_id", "")
         url     = info.get("url", "")
+        # 단일 변경점 등록 — 로컬 ID → 새 CB 이슈 ID 매핑 저장
+        # (⑨ 점검표가 로컬 ID 로 CB ID 를 역조회할 때 사용)
+        try:
+            last_lid = getattr(self, "_last_single_local_id", "") or ""
+            if last_lid and item_id:
+                from core import project_state
+                proj = getattr(mw, "_project_name", "") or ""
+                ver  = getattr(mw, "_project_version", "") or ""
+                if proj and ver:
+                    st = project_state.load_state(proj, ver) or {}
+                    ur = st.get("upload_results") or {}
+                    if not isinstance(ur, dict):
+                        ur = {}
+                    spec_ur = ur.get("spec") or {}
+                    if not isinstance(spec_ur, dict):
+                        spec_ur = {}
+                    by_local = spec_ur.get("by_local_id") or {}
+                    if not isinstance(by_local, dict):
+                        by_local = {}
+                    by_local[last_lid] = str(item_id)
+                    spec_ur["by_local_id"] = by_local
+                    ur["spec"] = spec_ur
+                    st["upload_results"] = ur
+                    project_state.save_state(proj, ver, st)
+            # 1회용 — 사용 후 클리어
+            self._last_single_local_id = ""
+        except Exception:
+            pass
+
         body = f"새 이슈 #{item_id} 가 생성되었습니다."
         mw._sb.showMessage(f"✅  Codebeamer 새 이슈 생성 완료 — #{item_id}")
         from view.ui_dialog import SuccessDialog
@@ -1406,14 +1490,13 @@ class CbController:
             except Exception:
                 test_has = False
 
-        # 코드리뷰(⑥) 매핑 결과 — 변경점별 OK/NG (AI 미실행이면 모두 "-")
+        # 코드리뷰(⑥) 매핑 결과 — 변경점별 O/X (매칭됐으면 O, 안됐으면 X)
         review_by_id = self._compute_review_results(change_items)
         # 변경점별로 다른 review 값을 적용하려면 results_by_id 에 review 키도 함께
         for ci in change_items:
             rid = ci.get("id")
             if rid in results_by_id:
-                results_by_id[rid]["review"] = review_by_id.get(rid, "-")
-        # 통계 (상태바용)
+                results_by_id[rid]["review"] = review_by_id.get(rid, "X")
         review_o = sum(1 for v in review_by_id.values() if v == "O")
         review_x = sum(1 for v in review_by_id.values() if v == "X")
 
@@ -1423,50 +1506,56 @@ class CbController:
             review="",   # 각 행이 results_by_id["review"] 로 개별 적용
             test  =("O" if test_has else "X"),
         )
-        if review_o or review_x:
-            review_summary = f"코드리뷰:{review_o}O/{review_x}X"
-        else:
-            review_summary = "코드리뷰:미실행"
         mw._sb.showMessage(
             f"📥  ⑧ 자동 채움 — 변경점 {len(change_items)}건 / "
             f"정적:{'O' if static_has else 'X'} / "
-            f"테스트:{'O' if test_has else 'X'} / {review_summary}")
+            f"테스트:{'O' if test_has else 'X'} / "
+            f"코드리뷰:{review_o}O/{review_x}X")
 
     # ── ⑧⑨ 공통: ① 사양변경 페이지에서 변경점 수집 ──────────
     def _collect_change_items(self) -> list:
         """① 의 [이슈/사양변경/수평전개] 묶음을 단일 리스트로.
-        반환: [{"cat":"issue/spec/hzt", "title": str, "id": str}, ...]
+        반환: [{"cat":"issue/spec/hzt", "title": str, "id": str, "cb_id": str}, ...]
         제목 없는 빈 묶음은 스킵.
+
+        cb_id 는 ① 등록 시 저장된 by_local_id 매핑으로 채움.
+        등록 전이면 빈 문자열 — ⑧/⑨ 의 _compute_* 매칭이 title 폴백 사용.
         """
         mw = self._mw
         page_spec = getattr(mw, "_page_spec", None)
         if page_spec is None:
             return []
+        # by_local_id 매핑 로드 (등록 전이면 빈 dict)
+        by_local: dict = {}
+        try:
+            from core import project_state
+            proj = getattr(mw, "_project_name", "") or ""
+            ver  = getattr(mw, "_project_version", "") or ""
+            if proj and ver:
+                st = project_state.load_state(proj, ver) or {}
+                ur = st.get("upload_results") or {}
+                spec_ur = ur.get("spec") or {}
+                by_local = spec_ur.get("by_local_id") or {}
+        except Exception:
+            by_local = {}
         out: list = []
-        try:
-            for i, b in enumerate(getattr(page_spec, "_items", []), start=1):
-                d = b.get_data() or {}
-                if (d.get("title") or "").strip():
-                    out.append({"cat": "issue", "title": d["title"].strip(),
-                                "id": f"issue#{i}"})
-        except Exception:
-            pass
-        try:
-            for i, b in enumerate(getattr(page_spec, "_spec_blocks", []), start=1):
-                d = b.get_data() or {}
-                if (d.get("title") or "").strip():
-                    out.append({"cat": "spec", "title": d["title"].strip(),
-                                "id": f"spec#{i}"})
-        except Exception:
-            pass
-        try:
-            for i, b in enumerate(getattr(page_spec, "_hzt_blocks", []), start=1):
-                d = b.get_data() or {}
-                if (d.get("title") or "").strip():
-                    out.append({"cat": "hzt", "title": d["title"].strip(),
-                                "id": f"hzt#{i}"})
-        except Exception:
-            pass
+        for kind, attr in (("issue", "_items"),
+                           ("spec",  "_spec_blocks"),
+                           ("hzt",   "_hzt_blocks")):
+            try:
+                for i, b in enumerate(getattr(page_spec, attr, []), start=1):
+                    d = b.get_data() or {}
+                    if not (d.get("title") or "").strip():
+                        continue
+                    lid = f"{kind}#{i}"
+                    out.append({
+                        "cat":   kind,
+                        "title": d["title"].strip(),
+                        "id":    lid,
+                        "cb_id": str(by_local.get(lid) or ""),
+                    })
+            except Exception:
+                pass
         return out
 
     def _compute_review_results(self, change_items: list) -> dict:
@@ -1475,18 +1564,18 @@ class CbController:
         흐름:
           · project_state.review_mapping (ai_controller 가 SpecMappingDialog
             확정 직후 저장) 을 읽음
-          · 매핑이 없으면 모든 변경점에 "-" 반환 (AI 미실행)
           · 각 ① 변경점 title 과 매핑 spec_changes[i].name 을 substring 매칭
           · 매칭된 spec_id 에 함수가 1개라도 있으면 "O", 아니면 "X"
+          · AI 미실행 / 매핑 없음 → 모두 "X" (이전: "-" placeholder, 사용자 요구로 X 통일)
 
-        반환: {change_id: "O" | "X" | "-"}
+        반환: {change_id: "O" | "X"}
         """
         mw = self._mw
         proj = getattr(mw, "_project_name", "") or ""
         ver  = getattr(mw, "_project_version", "") or ""
-        # 매핑 없음 — 모두 "-"
+        # 매핑 없음 — 모두 "X"
         if not proj or not ver:
-            return {ci["id"]: "-" for ci in change_items}
+            return {ci["id"]: "X" for ci in change_items}
         try:
             st = project_state.load_state(proj, ver) or {}
             rm = st.get("review_mapping") or {}
@@ -1495,7 +1584,7 @@ class CbController:
         spec_changes = rm.get("spec_changes") or []
         func_map     = rm.get("func_map") or []
         if not spec_changes or not func_map:
-            return {ci["id"]: "-" for ci in change_items}
+            return {ci["id"]: "X" for ci in change_items}
 
         # spec_id → 매핑된 함수 개수
         funcs_per_spec: dict = {}
@@ -1529,7 +1618,10 @@ class CbController:
           · ② 매핑에 이 변경점이 있고 req_ids 1개 이상 → O
           · 그 외 → X
           · ③ SAD, ④ SDD 동일
-        매칭은 change_id 우선, 폴백으로 제목 substring.
+
+        매칭 우선순위:
+          ① cb_id 일치 (① 등록 후 by_local_id 가 채워진 경우 — 정확함)
+          ② 제목 substring (등록 전 폴백)
         """
         mw = self._mw
         out: dict = {ci["id"]: {} for ci in change_items}
@@ -1554,18 +1646,31 @@ class CbController:
                     out[ci["id"]][col_key] = "N/A"
                     continue
                 matched = False
+                marked_na = False
+                cb_id = str(ci.get("cb_id") or "")
                 for m in mappings:
                     mid   = str(m.get("change_id") or "")
                     mname = str(m.get("change_name") or "")
                     reqs  = m.get("req_ids") or []
-                    if not reqs:
+                    # 변경점 식별 — cb_id 우선, 폴백 title substring
+                    is_this = False
+                    if cb_id and mid == cb_id:
+                        is_this = True
+                    else:
+                        title = ci.get("title") or ""
+                        if mname and title and (title in mname or mname in title):
+                            is_this = True
+                    if not is_this:
                         continue
-                    if mid and mid == ci["id"]:
+                    # N/A 토글 우선 — 사유는 선택 (비어있어도 N/A 처리)
+                    if m.get("na"):
+                        marked_na = True; break
+                    if reqs:
                         matched = True; break
-                    title = ci.get("title") or ""
-                    if mname and title and (title in mname or mname in title):
-                        matched = True; break
-                out[ci["id"]][col_key] = "O" if matched else "X"
+                if marked_na:
+                    out[ci["id"]][col_key] = "N/A"
+                else:
+                    out[ci["id"]][col_key] = "O" if matched else "X"
         return out
 
     def _compute_deploy_swe_results(self, change_items: list,
@@ -1613,31 +1718,44 @@ class CbController:
                     out[ci["id"]][col_key] = "N/A"
                     continue
                 matched_change_id = ""
+                marked_na = False
+                cb_id = str(ci.get("cb_id") or "")
                 for m in mappings:
                     mid   = str(m.get("change_id") or "")
                     mname = str(m.get("change_name") or "")
                     reqs  = m.get("req_ids") or []
-                    if not reqs:
+                    is_this = False
+                    if cb_id and mid == cb_id:
+                        is_this = True
+                    else:
+                        title = ci.get("title") or ""
+                        if mname and title and (title in mname or mname in title):
+                            is_this = True
+                    if not is_this:
                         continue
-                    if mid and mid == ci["id"]:
+                    # N/A 토글 우선
+                    if m.get("na") and (m.get("na_reason") or "").strip():
+                        marked_na = True; break
+                    if reqs:
                         matched_change_id = mid; break
-                    title = ci.get("title") or ""
-                    if mname and title and (title in mname or mname in title):
-                        matched_change_id = mid; break
+                if marked_na:
+                    out[ci["id"]][col_key] = "N/A"
+                    continue
                 if not matched_change_id:
                     out[ci["id"]][col_key] = ""   # 빨강 '없음'
                     continue
                 # 매칭됨 — 등록된 요구사항 이슈 IDs (list), 콤마 구분.
-                # 없으면 페이지 트래커 ID 로 폴백.
+                # 업로드 안 됐으면 (issue_ids 없음) X 처리 — 폴백으로 트래커 ID 쓰면
+                # `/cb/issue/<트래커ID>` 잘못된 링크가 됨 → 빈 문자열로.
                 issue_ids = by_change.get(matched_change_id) or []
                 if isinstance(issue_ids, list) and issue_ids:
                     out[ci["id"]][col_key] = ", ".join(str(x) for x in issue_ids)
                 else:
-                    out[ci["id"]][col_key] = tid
+                    out[ci["id"]][col_key] = ""   # 빨강 '없음' (= 업로드 필요)
         return out
 
     # ── ⑨ 불러오기 (4단계 새 양식) ─────────────────────────
-    def on_deploy_review_load(self):
+    def on_deploy_review_load(self, restore_inputs: bool = True):
         """⑨ 페이지 [📥 불러오기] — 4단계 새 양식.
 
         흐름:
@@ -1645,6 +1763,11 @@ class CbController:
           2) ②③④ 트래커 ID + 매핑 / 변경 없음 → 셀 값 산출 (트래커ID / N/A / 없음)
           3) ⑤⑦ 트래커 ID 동일 적용 (정적/테스트)
           4) ②③④ 체크리스트 결과 트래커 ID → Result 행 첨부 안내문
+
+        Args:
+          restore_inputs : True 면 ⑧ 입력값 / ⑨ 결재란을 디스크에서 복원.
+                           업로드 직전 자동 호출 시 False — 사용자가 방금 입력한 값을
+                           덮어쓰지 않도록.
         """
         mw = self._mw
         page = getattr(mw, "_page_deploy", None)
@@ -1665,12 +1788,13 @@ class CbController:
         if not change_items:
             mw._sb.showMessage(
                 "⚠  ① 사양변경 페이지에 입력된 변경점이 없습니다.")
-            # 결재란 등 복원만
-            st = project_state.load_state(proj, ver)
-            try:
-                page.apply_state(st.get("deploy_review") or {})
-            except Exception:
-                pass
+            # 결재란 등 복원만 (단, 업로드 직전 호출 시에는 스킵 — 현재 입력 보존)
+            if restore_inputs:
+                st = project_state.load_state(proj, ver)
+                try:
+                    page.apply_state(st.get("deploy_review") or {})
+                except Exception:
+                    pass
             return
 
         # 2) ②③④ 결과 — 트래커 ID / N/A / X
@@ -1724,15 +1848,17 @@ class CbController:
             f"📥  ⑨ 자동 채움 — 변경점 {n_chg}건 / 트래커 매핑 완료")
 
         # ⑧ 페이지의 입력값 + ⑨ 결재란도 같은 JSON 에 보관되므로 복원 시도
-        st = project_state.load_state(proj, ver)
-        try:
-            mw._page_open.apply_state(st.get("open_items") or {})
-        except Exception:
-            pass
-        try:
-            page.apply_state(st.get("deploy_review") or {})
-        except Exception:
-            pass
+        # (단, restore_inputs=False 면 사용자가 방금 입력한 값을 보존)
+        if restore_inputs:
+            st = project_state.load_state(proj, ver)
+            try:
+                mw._page_open.apply_state(st.get("open_items") or {})
+            except Exception:
+                pass
+            try:
+                page.apply_state(st.get("deploy_review") or {})
+            except Exception:
+                pass
 
         n = sum(1 for v in trackers.values() if v)
         mw._sb.showMessage(
@@ -1754,8 +1880,10 @@ class CbController:
         """⑨ 배포 리뷰 페이지의 [📤 CB 업로드] 헤더 버튼 핸들러."""
         # ⑨ 업로드 시점에는 자동으로 최신 트래커 ID 를 우선 한번 더 불러옴.
         # (사용자가 [불러오기] 누르지 않고 바로 업로드한 경우 대응)
+        # 단, restore_inputs=False — 결재란/⑧ 입력값을 디스크에서 다시 덮어쓰지 않음
+        # (사용자가 방금 입력한 값을 보존)
         try:
-            self.on_deploy_review_load()
+            self.on_deploy_review_load(restore_inputs=False)
         except Exception:
             pass
         self._upload_simple_page(
@@ -1813,10 +1941,16 @@ class CbController:
         from view.ui_cb_upload import CbUploadDialog
         # ⑧/⑨ 전용 last_upload key — 페이지별로 따로 보관
         last_key = f"last_{page_attr.lstrip('_')}_tracker_id"
+        # 트래커 ID 우선순위:
+        # ① 프로젝트 시작 시 입력한 page_key 별 트래커 ID (project_state)
+        # ② 직전 업로드 시 사용한 페이지별 last 값 (cb_config)
+        # ③ 전역 last 값 (cb_config)
+        default_tid = (self._default_tracker_id(page_key) if page_key else "")
         dlg = CbUploadDialog(
             mw, title_prefix, summary,
-            last_tracker_id=cfg.get(last_key, "")
-                            or cfg.get("last_upload_tracker_id", ""),
+            last_tracker_id=(default_tid
+                            or cfg.get(last_key, "")
+                            or cfg.get("last_upload_tracker_id", "")),
             last_attach_md=False, last_attach_html=False,
             last_parent_id=cfg.get("last_upload_parent_id", ""),
             body_hint=body_hint,

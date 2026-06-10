@@ -247,6 +247,10 @@ class AiController:
         self._worker.vuln_done.connect(self._thread.quit)
         self._worker.error.connect(self._thread.quit)
         self._worker.cancelled.connect(self._thread.quit)    # ★
+        # 스레드 종료 후 워커/스레드 객체 deleteLater — gc 타이밍 충돌 방지
+        # (SweReviewController / SrsReviewV2Controller 와 동일 패턴)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
     # ──────────────────────────────────────────────────────────
@@ -978,6 +982,9 @@ class AiController:
         self._continue_worker.done.connect(self._continue_thread.quit)
         self._continue_worker.error.connect(self._continue_thread.quit)
         self._continue_worker.cancelled.connect(self._continue_thread.quit)
+        # 스레드 종료 후 워커/스레드 객체 deleteLater — gc 타이밍 충돌 방지
+        self._continue_thread.finished.connect(self._continue_worker.deleteLater)
+        self._continue_thread.finished.connect(self._continue_thread.deleteLater)
 
         self._mw._input.set_ai_running(True)
         self._mw._sb.showMessage("🤖  이어서 분석 중...")

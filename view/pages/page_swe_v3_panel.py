@@ -463,6 +463,8 @@ class ChangePointMatchingCard(QFrame):
         self._req_inputs: list[list] = []
         # 변경점별 입력칸 레이아웃 (행 추가/제거용)
         self._inputs_layouts: list = []
+        # 변경점별 N/A 상태 — [{na: bool, reason: str, btn: QPushButton}]
+        self._na_states: list = []
         self._build()
 
     def _build(self):
@@ -623,6 +625,7 @@ class ChangePointMatchingCard(QFrame):
                 w.setParent(None); w.deleteLater()
         self._req_inputs.clear()
         self._inputs_layouts.clear()
+        self._na_states.clear()
         if not self._items:
             empty = QLabel("📭  변경점이 없습니다. [변경점 불러오기] 를 먼저 실행하세요.")
             empty.setStyleSheet(
@@ -665,6 +668,33 @@ class ChangePointMatchingCard(QFrame):
             add_btn.clicked.connect(
                 lambda _checked=False, _r=ridx: self._add_input_for_row(_r))
             inputs_lay.addWidget(add_btn)
+
+            # [🟡 N/A] 토글 — 해당 변경점이 이 페이지 (SRS/SAD/SDD) 와 무관한 경우
+            na_btn = QPushButton("🟡  N/A")
+            na_btn.setFixedHeight(26)
+            na_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            na_btn.setToolTip(
+                "이 변경점이 해당 페이지와 무관한 경우 — 클릭으로 토글.\n"
+                "⑧/⑨ 점검표에서 X 대신 N/A (노랑) 로 표시됩니다.")
+            na_btn.setCheckable(False)   # 토글 상태는 self._na_states 로 관리
+            na_btn.setStyleSheet(self._na_btn_style_off())
+            na_btn.clicked.connect(
+                lambda _checked=False, _r=ridx: self._toggle_na(_r))
+            inputs_lay.addWidget(na_btn)
+
+            # N/A 사유 인라인 입력칸 — 토글 ON 시에만 표시 (사유는 선택)
+            na_reason_le = QLineEdit()
+            na_reason_le.setPlaceholderText("사유 (선택)")
+            na_reason_le.setFixedHeight(26)
+            na_reason_le.setMinimumWidth(160)
+            na_reason_le.setMaximumWidth(260)
+            na_reason_le.setStyleSheet(
+                f"QLineEdit {{ background:#FFFBEB; color:#92400E;"
+                f"  border:1px solid #EAB308; border-radius:4px;"
+                f"  padding:2px 8px; font-size:10px; }}"
+                f"QLineEdit:focus {{ border-color:#A16207; }}")
+            na_reason_le.setVisible(False)
+            inputs_lay.addWidget(na_reason_le)
             inputs_lay.addStretch(1)
             rl.addLayout(inputs_lay, 1)
 
@@ -672,6 +702,10 @@ class ChangePointMatchingCard(QFrame):
             self._req_inputs.append([])
             # add_btn 도 보관해서 입력칸 추가 시 그 앞에 삽입
             self._inputs_layouts.append((inputs_lay, add_btn))
+            self._na_states.append({
+                "na": False, "reason": "",
+                "btn": na_btn, "reason_le": na_reason_le,
+            })
 
     def _add_input_for_row(self, row_idx: int):
         """변경점 row_idx 에 입력칸 1 개 추가 — [+ 추가] 버튼 바로 앞에 삽입."""
@@ -728,6 +762,46 @@ class ChangePointMatchingCard(QFrame):
         except Exception:
             pass
 
+    # ── N/A 토글 ────────────────────────────────────────────
+    @staticmethod
+    def _na_btn_style_off() -> str:
+        return (f"QPushButton {{ background:transparent; color:#A16207;"
+                f"  border:1px dashed #EAB308; border-radius:4px;"
+                f"  padding:1px 10px; font-size:10px; font-weight:600; }}"
+                f"QPushButton:hover {{ background:#FEF9C3; }}")
+
+    @staticmethod
+    def _na_btn_style_on() -> str:
+        return (f"QPushButton {{ background:#FEF3C7; color:#92400E;"
+                f"  border:1px solid #EAB308; border-radius:4px;"
+                f"  padding:1px 10px; font-size:10px; font-weight:700; }}"
+                f"QPushButton:hover {{ background:#FDE68A; }}")
+
+    def _toggle_na(self, row_idx: int):
+        """N/A 토글 — 옆의 인라인 사유 입력칸 show/hide. 사유는 선택 (필수 아님)."""
+        if row_idx < 0 or row_idx >= len(self._na_states):
+            return
+        state = self._na_states[row_idx]
+        btn = state.get("btn")
+        reason_le = state.get("reason_le")
+        if state.get("na"):
+            # 이미 N/A → 해제
+            state["na"] = False
+            if btn:
+                btn.setText("🟡  N/A")
+                btn.setStyleSheet(self._na_btn_style_off())
+            if reason_le is not None:
+                reason_le.setVisible(False)
+            return
+        # OFF → ON: 인라인 사유 칸만 노출 (사유는 비어있어도 OK)
+        state["na"] = True
+        if btn:
+            btn.setText("🟡  N/A")
+            btn.setStyleSheet(self._na_btn_style_on())
+        if reason_le is not None:
+            reason_le.setVisible(True)
+            reason_le.setFocus()
+
     def set_req_diff(self, text: str):
         """레거시 호환 — 텍스트 한 덩어리. ID 그룹화 없이 그냥 표시."""
         self._diff_groups = {}
@@ -775,12 +849,14 @@ class ChangePointMatchingCard(QFrame):
 
     # ── 결과 수집 ─────────────────────────────────────────────
     def get_mappings(self) -> list:
-        """[{"change_id":..., "change_name":..., "req_ids": [str,...]}, ...]
+        """[{"change_id":..., "change_name":..., "req_ids": [str,...],
+            "na": bool, "na_reason": str}, ...]
 
         각 변경점의 입력칸 N 개에서 ID 를 모음 (빈 칸은 제외).
+        na/na_reason 은 [🟡 N/A] 토글 상태.
         """
         out = []
-        for it, les in zip(self._items, self._req_inputs):
+        for ridx, (it, les) in enumerate(zip(self._items, self._req_inputs)):
             req_ids = []
             for le in (les or []):
                 try:
@@ -789,10 +865,23 @@ class ChangePointMatchingCard(QFrame):
                     text = ""
                 if text:
                     req_ids.append(text)
+            # N/A 상태 — _na_states 인덱스 일치
+            na_state = (self._na_states[ridx]
+                        if ridx < len(self._na_states) else {})
+            # 사유는 인라인 입력칸에서 그때그때 읽음 (사용자가 토글 후 입력한 최신값)
+            reason_le = na_state.get("reason_le")
+            na_reason = ""
+            if reason_le is not None:
+                try:
+                    na_reason = (reason_le.text() or "").strip()
+                except Exception:
+                    na_reason = ""
             out.append({
                 "change_id":   str(it.get("id") or ""),
                 "change_name": str(it.get("name") or ""),
                 "req_ids":     req_ids,
+                "na":          bool(na_state.get("na", False)),
+                "na_reason":   na_reason,
             })
         return out
 

@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor
 
 from config import C
-from ._common import BasePage, TabStack, PlaceholderBody
+from ._common import BasePage, TabStack
 # 라이트 모드 달력 QSS (배포 리뷰 페이지와 공유)
 from .page_deploy_review import _LIGHT_CAL_QSS
 

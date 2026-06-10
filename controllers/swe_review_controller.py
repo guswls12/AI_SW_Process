@@ -47,37 +47,45 @@ class SweReviewController(QObject):
 
     # ── 시그널 연결 ──────────────────────────────────────────
     def _wire(self):
-        try:
-            self._page.change_load_card.load_clicked.connect(self.on_load_changes)
-        except Exception:
-            pass
-        try:
-            self._page.aspice_checklist.ai_run_clicked.connect(self.on_ai_run)
-        except Exception:
-            pass
-        # OUTPUT > '🔗 변경점 매칭 결과' 카드의 [📤] — 매칭 결과만 업로드
-        try:
-            self._page.change_match_card.upload_clicked.connect(self.on_upload_mappings)
-        except Exception:
-            pass
-        # OUTPUT > '🤖 체크리스트 AI 분석 결과' 카드의 [📤] — 체크리스트만 업로드
-        try:
-            self._page.ai_result_panel.upload_all_requested.connect(self.on_upload_checklist)
-            # 항상 활성 — 업로드 시점에 체크리스트 로드 여부 검증
-            self._page.ai_result_panel.set_upload_enabled(True)
-        except Exception:
-            pass
-        # 페이지 헤더 [📤 CB 업로드] — 매칭 + 체크리스트 같이 업로드
-        try:
-            self._page.upload_clicked.connect(self.on_upload_all)
-        except Exception:
-            pass
-        # SAD/SDD 만 — SRS 는 main.py 에서 별도 라우팅 (extras_proxy 경유)
+        """페이지의 시그널들을 컨트롤러 슬롯에 명시적 연결.
+        page 가 가져야 할 속성/시그널이 누락되면 stderr 로 진단 출력 — 추후
+        페이지 리팩토링 시 silent fail 방지.
+        """
+        import sys
+        page = self._page
+        # (속성 경로, 시그널명, 슬롯) — 모든 페이지 공통 4건 + SAD/SDD 만 1건
+        bindings = [
+            ("change_load_card",  "load_clicked",        self.on_load_changes),
+            ("aspice_checklist",  "ai_run_clicked",      self.on_ai_run),
+            # OUTPUT > '🔗 변경점 매칭 결과' [📤] — 매칭 결과만 업로드
+            ("change_match_card", "upload_clicked",      self.on_upload_mappings),
+            # OUTPUT > '🤖 체크리스트 AI 분석 결과' [📤] — 체크리스트만 업로드
+            ("ai_result_panel",   "upload_all_requested", self.on_upload_checklist),
+        ]
+        # SAD/SDD — 변경 전/후 문서 DIFF (SRS 는 main.py 의 extras_proxy 경유 별도 처리)
         if self._page_key in ("sad", "sdd"):
-            try:
-                self._page.diff_requested.connect(self.on_diff_requested)
-            except Exception:
-                pass
+            bindings.append((None, "diff_requested",     self.on_diff_requested))
+
+        for attr_name, sig_name, slot in bindings:
+            owner = getattr(page, attr_name, None) if attr_name else page
+            if owner is None:
+                print(f"[WIRE WARN] {self._page_key}: page.{attr_name} 누락 — "
+                      f"{sig_name} 연결 스킵", file=sys.stderr)
+                continue
+            sig = getattr(owner, sig_name, None)
+            if sig is None:
+                print(f"[WIRE WARN] {self._page_key}: "
+                      f"{attr_name or 'page'}.{sig_name} 시그널 누락", file=sys.stderr)
+                continue
+            sig.connect(slot)
+
+        # 페이지 헤더 [📤 CB 업로드] — 매칭 + 체크리스트 같이 업로드
+        # (page.upload_clicked 는 SwePage 의 클래스 시그널이라 항상 존재)
+        page.upload_clicked.connect(self.on_upload_all)
+
+        # ai_result_panel 업로드 버튼 — 항상 활성 (체크리스트 로드 여부는 업로드 시점에 검증)
+        if getattr(page, "ai_result_panel", None) is not None:
+            page.ai_result_panel.set_upload_enabled(True)
 
     # ──────────────────────────────────────────────────────────
     #  변경 전/후 문서 DIFF 추출 (SAD/SDD 전용)
@@ -690,10 +698,6 @@ class SweReviewController(QObject):
             fetcher, tracker_id, proj, bulk_items,
             label=f"매칭 {n_map}개 + 체크리스트 {n_chk}개")
 
-    # ── 레거시 호환 — 외부에서 on_upload() 그대로 호출하던 코드 ─
-    def on_upload(self, mappings: list):
-        self.on_upload_all(mappings)
-
     def _on_bulk_upload_done(self, info: dict):
         results  = info.get("results", []) or []
         failures = info.get("failures", []) or []
@@ -782,31 +786,6 @@ class SweReviewController(QObject):
                 headline=f"{n_ok}개 성공 / {n_fail}개 실패",
                 detail="\n".join(lines),
             ).exec()
-        self._upload_thread = None
-        self._upload_worker = None
-
-    def _on_upload_done(self, info: dict):
-        item_id = info.get("item_id", "")
-        url     = info.get("url", "")
-        self._mw._sb.showMessage(
-            f"✅  CB 업로드 완료 — 새 이슈 #{item_id}")
-        from view.ui_dialog import SuccessDialog
-        import webbrowser
-        from PyQt6.QtWidgets import QDialog
-        dlg = SuccessDialog(
-            self._mw,
-            title=f"[{self._page_key.upper()}] CB 업로드 완료",
-            headline=f"새 이슈 #{item_id} 가 생성되었습니다.\n"
-                     f"ASPICE 체크리스트 xlsx 가 첨부되었습니다.",
-            link_url=url,
-            primary_label="브라우저에서 열기",
-            secondary_label="닫기",
-        )
-        if dlg.exec() == QDialog.DialogCode.Accepted and url:
-            try:
-                webbrowser.open(url)
-            except Exception:
-                pass
         self._upload_thread = None
         self._upload_worker = None
 
@@ -902,57 +881,6 @@ def _build_per_req_body_md(req_id: str, grp: dict, parent_change_id: str) -> str
         lines.append("```")
         lines.append(after)
         lines.append("```")
-    return "\n".join(lines)
-
-
-def _build_per_change_body_md(change_id: str, change_name: str,
-                              req_ids: list, diff_groups: dict,
-                              checklist_state: dict) -> str:
-    """매핑 한 건당 본문 마크다운 — 변경점 정보 + 요구사항 ID 별 DIFF + 체크리스트 요약."""
-    lines = []
-    lines.append(f"# 변경점 #{change_id} — 요구사항 매칭 결과")
-    lines.append("")
-    if change_name:
-        lines.append(f"**변경점 제목**: {change_name}")
-    lines.append(f"**상위 변경점 트래커**: #{change_id}")
-    lines.append(f"**매칭 요구사항**: {', '.join(req_ids) if req_ids else '(없음)'}")
-    lines.append("")
-    # 요구사항 ID 별 변경 전/후
-    if req_ids and diff_groups:
-        lines.append("## 요구사항별 변경 내용")
-        lines.append("")
-        for rid in req_ids:
-            grp = diff_groups.get(rid)
-            if not grp:
-                lines.append(f"### {rid}")
-                lines.append("(요구사항 DIFF 데이터 없음)")
-                lines.append("")
-                continue
-            tp = grp.get("type") or ""
-            lines.append(f"### {tp} {rid}")
-            if grp.get("before"):
-                lines.append("**[변경 전]**")
-                lines.append("```")
-                lines.append(grp["before"])
-                lines.append("```")
-            if grp.get("after"):
-                lines.append("**[변경 후]**")
-                lines.append("```")
-                lines.append(grp["after"])
-                lines.append("```")
-            lines.append("")
-    # 체크리스트 요약 (선택)
-    items = (checklist_state or {}).get("items") or []
-    if items:
-        from collections import Counter
-        counts = Counter(it.get("judge") or "(미판정)" for it in items)
-        lines.append("## 체크리스트 판정 요약")
-        lines.append("")
-        for k in ("OK", "OK But", "NG", "N/A", "(미판정)"):
-            if counts.get(k):
-                lines.append(f"- {k}: {counts[k]}")
-        lines.append("")
-        lines.append("> 상세 결과는 첨부된 ASPICE 체크리스트 xlsx 를 참조하세요.")
     return "\n".join(lines)
 
 

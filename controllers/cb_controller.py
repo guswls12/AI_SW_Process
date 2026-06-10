@@ -38,6 +38,21 @@ class CbController:
         self._mw = main_window
         # 앱 시작 시 디스크의 CB 마크다운을 로드해 컨텍스트로 보유
         self.cb_context: str = load_cb_context()
+
+    def _default_tracker_id(self, page_key: str) -> str:
+        """프로젝트 정보 다이얼로그에서 입력한 트래커 ID 반환.
+        page_key: 'spec'/'srs'/'sad'/'sdd'/'static'/'review'/'test' 등.
+        """
+        mw = self._mw
+        proj = getattr(mw, "_project_name", "") or ""
+        ver  = getattr(mw, "_project_version", "") or ""
+        if not proj or not ver:
+            return ""
+        try:
+            from core import project_state
+            return project_state.get_tracker_id(proj, ver, page_key) or ""
+        except Exception:
+            return ""
         # ★ 업로드 워커 핸들 (가비지 컬렉션 방지를 위해 인스턴스로 보관)
         self._upload_thread = None
         self._upload_worker = None
@@ -153,7 +168,9 @@ class CbController:
         from view.ui_cb_upload import CbUploadDialog
         dlg = CbUploadDialog(
             mw, project_name, summary,
-            last_tracker_id=cfg.get("last_upload_tracker_id", ""),
+            # ⑥ 코드리뷰 업로드 — 시작 다이얼로그에서 등록한 코드리뷰 트래커 ID 우선
+            last_tracker_id=(self._default_tracker_id("review")
+                            or cfg.get("last_upload_tracker_id", "")),
             last_attach_md=cfg.get("last_upload_attach_md", True),
             last_attach_html=cfg.get("last_upload_attach_html", True),
             last_parent_id=cfg.get("last_upload_parent_id", ""),
@@ -285,7 +302,8 @@ class CbController:
         from view.ui_cb_upload import CbUploadDialog
         dlg = CbUploadDialog(
             mw, item_title, summary,
-            last_tracker_id=cfg.get("last_upload_tracker_id", ""),
+            last_tracker_id=(self._default_tracker_id("spec")
+                            or cfg.get("last_upload_tracker_id", "")),
             last_attach_md=cfg.get("last_upload_attach_md", True),
             last_attach_html=cfg.get("last_upload_attach_html", True),
             last_parent_id=cfg.get("last_upload_parent_id", ""),
@@ -454,7 +472,8 @@ class CbController:
         from view.ui_cb_upload import CbUploadDialog
         dlg = CbUploadDialog(
             mw, item_title, summary,
-            last_tracker_id=cfg.get("last_upload_tracker_id", ""),
+            last_tracker_id=(self._default_tracker_id("spec")
+                            or cfg.get("last_upload_tracker_id", "")),
             last_attach_md=cfg.get("last_upload_attach_md", True),
             last_attach_html=cfg.get("last_upload_attach_html", True),
             last_parent_id=cfg.get("last_upload_parent_id", ""),
@@ -637,7 +656,8 @@ class CbController:
         from view.ui_cb_upload import CbUploadDialog
         dlg = CbUploadDialog(
             mw, first_title, preview_summary,
-            last_tracker_id=cfg.get("last_upload_tracker_id", ""),
+            last_tracker_id=(self._default_tracker_id("spec")
+                            or cfg.get("last_upload_tracker_id", "")),
             last_attach_md=cfg.get("last_upload_attach_md", True),
             last_attach_html=cfg.get("last_upload_attach_html", True),
             last_parent_id=cfg.get("last_upload_parent_id", ""),
@@ -713,6 +733,166 @@ class CbController:
         self._upload_worker.error.connect(self._upload_thread.quit)
         mw._sb.showMessage(
             f"📤  변경점 {len(candidates)}개 일괄 업로드 시작...")
+        self._upload_thread.start()
+
+    # ──────────────────────────────────────────────────────────
+    #  사양변경 / 수평전개 — 전체 등록 일괄 처리 (CbBulkUploadWorker)
+    # ──────────────────────────────────────────────────────────
+    def on_register_all_spec_changes(self, items: list):
+        """사양변경 탭 [📤 전체 등록] — 다이얼로그 1번 + N 개 일괄 등록."""
+        from view.pages.page_spec import SpecChangePage
+        self._register_all_generic(
+            items,
+            render_md_func=SpecChangePage.render_spec_change_md,
+            kind_label="사양변경",
+            content_label="[변경 내용]",
+            need_extra_fields=False,
+        )
+
+    def on_register_all_hzt_items_bulk(self, items: list):
+        """수평전개 탭 [📤 전체 등록] — 다이얼로그 1번 + N 개 일괄 등록."""
+        from view.pages.page_spec import SpecChangePage
+        self._register_all_generic(
+            items,
+            render_md_func=SpecChangePage.render_hzt_item_md,
+            kind_label="수평전개",
+            content_label="[수평전개 내용]",
+            need_extra_fields=False,
+        )
+
+    def _register_all_generic(self, items: list, *,
+                              render_md_func, kind_label: str,
+                              content_label: str,
+                              need_extra_fields: bool):
+        """사양변경/수평전개 공용 일괄 등록.
+        다이얼로그 한 번 받고 CbBulkUploadWorker 로 N 개 순차 등록.
+        """
+        mw = self._mw
+        if not items:
+            return
+
+        # 자격증명 + 메타 검증
+        cfg = load_config()
+        url, user, pw = (cfg.get("url",""), cfg.get("username",""),
+                         cfg.get("password",""))
+        if not (url and user and pw):
+            QMessageBox.warning(
+                mw, "Codebeamer 미설정",
+                "먼저 좌측의 Codebeamer 설정에서 URL/계정/비밀번호를 입력해주세요.")
+            return
+        try:
+            meta = mw._input.get_project_meta()
+        except Exception:
+            meta = {}
+        required = [
+            ("ver_old", "변경 전 (.ver)"),
+            ("ver_new", "변경 후 (.ver)"),
+            ("author",  "설계자"),
+        ]
+        missing = [label for key, label in required
+                   if not (meta.get(key) or "").strip()]
+        if missing:
+            from view.ui_dialog import MissingFieldsDialog
+            MissingFieldsDialog(mw, missing).exec()
+            return
+
+        # 다이얼로그
+        first_title = items[0].get("title", "").strip() or "(제목 없음)"
+        preview = (f"{first_title}  외 {len(items)-1}개"
+                   if len(items) > 1 else first_title)
+        body_hint = (f"본문: 프로젝트 정보 + {kind_label} {len(items)}개 "
+                     f"각각 별도 이슈로 생성")
+        from view.ui_cb_upload import CbUploadDialog
+        dlg = CbUploadDialog(
+            mw, first_title, preview,
+            last_tracker_id=(self._default_tracker_id("spec")
+                             or cfg.get("last_upload_tracker_id", "")),
+            last_attach_md=cfg.get("last_upload_attach_md", True),
+            last_attach_html=cfg.get("last_upload_attach_html", True),
+            last_parent_id=cfg.get("last_upload_parent_id", ""),
+            body_hint=body_hint,
+            last_hzt_enabled=cfg.get("last_hzt_enabled", False),
+            last_hzt_tracker_id=cfg.get("last_hzt_tracker_id", ""),
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        upload = dlg.result_data
+        if not upload:
+            return
+
+        # 마지막 사용값 저장
+        cfg["last_upload_tracker_id"]  = upload["tracker_id"]
+        cfg["last_upload_attach_md"]   = upload["attach_md"]
+        cfg["last_upload_attach_html"] = upload["attach_html"]
+        cfg["last_upload_parent_id"]   = upload.get("parent_item_id", "")
+        cfg["last_hzt_enabled"]        = upload.get("hzt_enabled", False)
+        cfg["last_hzt_tracker_id"]     = upload.get("hzt_tracker_id", "")
+        save_config(cfg)
+
+        # 항목별 본문 빌드
+        try:
+            header_md = mw._input.get_project_header_md()
+        except Exception:
+            header_md = ""
+        bulk_items = []
+        for i, data in enumerate(items, start=1):
+            item_md = render_md_func(data) or ""
+            parts = [p for p in (header_md, item_md) if p]
+            body_md = "\n\n---\n\n".join(parts) if parts else item_md
+            # 수평전개 본문 — content + jira
+            hzt_body_sections = []
+            content = (data.get("content") or "").strip()
+            if content:
+                hzt_body_sections.append(f"{content_label}\n{content}")
+            if kind_label == "사양변경":
+                reason = (data.get("reason") or "").strip()
+                if reason:
+                    hzt_body_sections.append(f"[변경 사유]\n{reason}")
+            jira = (data.get("jira") or "").strip()
+            if jira:
+                hzt_body_sections.append(f"[JIRA]\n{jira}")
+            hzt_body = "\n\n".join(hzt_body_sections)
+
+            bulk_items.append({
+                "idx":         i,
+                "title":       data.get("title", "").strip() or f"항목 #{i}",
+                "summary":     data.get("title", "").strip() or f"항목 #{i}",
+                "body_md":     body_md,
+                "attachments": data.get("attachments") or [],
+                "hzt_state":   data.get("hzt") or {},
+                "jira_link":   jira,
+                "hzt_body":    hzt_body,
+                "hzt_extra_fields": (
+                    {"발생시점": data.get("occurrence") or ""}
+                    if need_extra_fields else {}),
+            })
+
+        # 워커 스핀
+        from workers.cb_bulk_upload_worker import CbBulkUploadWorker
+        fetcher = CbFetcher(url, user, pw)
+        hzt_tracker = (upload.get("hzt_tracker_id", "")
+                       if upload.get("hzt_enabled") else "")
+
+        self._upload_thread = QThread()
+        self._upload_worker = CbBulkUploadWorker(
+            fetcher, upload["tracker_id"], bulk_items,
+            project_name=mw._input.get_project_name() or "AIreview",
+            attach_md=upload["attach_md"],
+            attach_html=upload["attach_html"],
+            parent_item_id=upload.get("parent_item_id", ""),
+            hzt_tracker_id=hzt_tracker,
+            main_is_hzt=True,
+        )
+        self._upload_worker.moveToThread(self._upload_thread)
+        self._upload_thread.started.connect(self._upload_worker.run)
+        self._upload_worker.progress.connect(
+            lambda msg: mw._sb.showMessage(msg))
+        self._upload_worker.done.connect(self._on_bulk_upload_done)
+        self._upload_worker.error.connect(self._on_upload_error)
+        self._upload_worker.done.connect(self._upload_thread.quit)
+        self._upload_worker.error.connect(self._upload_thread.quit)
+        mw._sb.showMessage(
+            f"📤  {kind_label} {len(bulk_items)}개 일괄 업로드 시작...")
         self._upload_thread.start()
 
     # ── 일괄 업로드 완료 슬롯 ────────────────────────────────
@@ -1226,16 +1406,31 @@ class CbController:
             except Exception:
                 test_has = False
 
+        # 코드리뷰(⑥) 매핑 결과 — 변경점별 OK/NG (AI 미실행이면 모두 "-")
+        review_by_id = self._compute_review_results(change_items)
+        # 변경점별로 다른 review 값을 적용하려면 results_by_id 에 review 키도 함께
+        for ci in change_items:
+            rid = ci.get("id")
+            if rid in results_by_id:
+                results_by_id[rid]["review"] = review_by_id.get(rid, "-")
+        # 통계 (상태바용)
+        review_o = sum(1 for v in review_by_id.values() if v == "O")
+        review_x = sum(1 for v in review_by_id.values() if v == "X")
+
         page.apply_results(
             results_by_id,
             static=("O" if static_has else "X"),
-            review="-",   # 4단계 보류
+            review="",   # 각 행이 results_by_id["review"] 로 개별 적용
             test  =("O" if test_has else "X"),
         )
+        if review_o or review_x:
+            review_summary = f"코드리뷰:{review_o}O/{review_x}X"
+        else:
+            review_summary = "코드리뷰:미실행"
         mw._sb.showMessage(
             f"📥  ⑧ 자동 채움 — 변경점 {len(change_items)}건 / "
             f"정적:{'O' if static_has else 'X'} / "
-            f"테스트:{'O' if test_has else 'X'} / 코드리뷰:보류")
+            f"테스트:{'O' if test_has else 'X'} / {review_summary}")
 
     # ── ⑧⑨ 공통: ① 사양변경 페이지에서 변경점 수집 ──────────
     def _collect_change_items(self) -> list:
@@ -1272,6 +1467,58 @@ class CbController:
                                 "id": f"hzt#{i}"})
         except Exception:
             pass
+        return out
+
+    def _compute_review_results(self, change_items: list) -> dict:
+        """⑥ 코드리뷰 AI 매핑 결과 → ① 변경점별 OK/NG 산출.
+
+        흐름:
+          · project_state.review_mapping (ai_controller 가 SpecMappingDialog
+            확정 직후 저장) 을 읽음
+          · 매핑이 없으면 모든 변경점에 "-" 반환 (AI 미실행)
+          · 각 ① 변경점 title 과 매핑 spec_changes[i].name 을 substring 매칭
+          · 매칭된 spec_id 에 함수가 1개라도 있으면 "O", 아니면 "X"
+
+        반환: {change_id: "O" | "X" | "-"}
+        """
+        mw = self._mw
+        proj = getattr(mw, "_project_name", "") or ""
+        ver  = getattr(mw, "_project_version", "") or ""
+        # 매핑 없음 — 모두 "-"
+        if not proj or not ver:
+            return {ci["id"]: "-" for ci in change_items}
+        try:
+            st = project_state.load_state(proj, ver) or {}
+            rm = st.get("review_mapping") or {}
+        except Exception:
+            rm = {}
+        spec_changes = rm.get("spec_changes") or []
+        func_map     = rm.get("func_map") or []
+        if not spec_changes or not func_map:
+            return {ci["id"]: "-" for ci in change_items}
+
+        # spec_id → 매핑된 함수 개수
+        funcs_per_spec: dict = {}
+        for fm in func_map:
+            sid = str(fm.get("spec_id") or "")
+            if sid:
+                funcs_per_spec[sid] = funcs_per_spec.get(sid, 0) + 1
+
+        out: dict = {}
+        for ci in change_items:
+            title = (ci.get("title") or "").strip()
+            matched_sid = ""
+            for sc in spec_changes:
+                sid  = str(sc.get("id") or "")
+                name = str(sc.get("name") or "")
+                if not title or not name:
+                    continue
+                if title in name or name in title:
+                    matched_sid = sid; break
+            if matched_sid and funcs_per_spec.get(matched_sid, 0) > 0:
+                out[ci["id"]] = "O"
+            else:
+                out[ci["id"]] = "X"
         return out
 
     def _compute_swe_results(self, change_items: list) -> dict:
@@ -1326,17 +1573,29 @@ class CbController:
         """⑨ 배포리뷰 변경점별 SRS/SAD/SDD 셀 값 산출.
 
         반환 dict 값:
-          · 트래커 ID 문자열  → 매칭 + 트래커 등록됨 (초록)
-          · 'N/A'             → 변경 없음 체크
-          · ''                → 매칭 없음 (빨강)
+          · 이슈 ID 문자열  → 변경점이 매칭된 요구사항 이슈 (등록된 후)
+          · 'N/A'           → 변경 없음 체크
+          · ''              → 매칭 없음 / 미등록 (빨강)
         """
         mw = self._mw
+        # 업로드 결과 매핑 — _on_bulk_upload_done 가 저장해둔 by_change_id
+        proj = getattr(mw, "_project_name", "") or ""
+        ver  = getattr(mw, "_project_version", "") or ""
+        upload_results: dict = {}
+        if proj and ver:
+            try:
+                st = project_state.load_state(proj, ver) or {}
+                upload_results = st.get("upload_results") or {}
+            except Exception:
+                upload_results = {}
         out: dict = {ci["id"]: {} for ci in change_items}
         for col_key, page_attr in (("srs", "_page_srs"),
                                    ("sad", "_page_sad"),
                                    ("sdd", "_page_sdd")):
             page = getattr(mw, page_attr, None)
             tid = str((trackers or {}).get(col_key) or "").strip()
+            page_ur = upload_results.get(col_key) or {}
+            by_change = page_ur.get("by_change_id") or {}
             if page is None:
                 for ci in change_items:
                     out[ci["id"]][col_key] = ""
@@ -1353,7 +1612,7 @@ class CbController:
                 if no_change:
                     out[ci["id"]][col_key] = "N/A"
                     continue
-                matched = False
+                matched_change_id = ""
                 for m in mappings:
                     mid   = str(m.get("change_id") or "")
                     mname = str(m.get("change_name") or "")
@@ -1361,13 +1620,20 @@ class CbController:
                     if not reqs:
                         continue
                     if mid and mid == ci["id"]:
-                        matched = True; break
+                        matched_change_id = mid; break
                     title = ci.get("title") or ""
                     if mname and title and (title in mname or mname in title):
-                        matched = True; break
-                # 매칭 + 트래커 ID 있으면 → 트래커 ID 셀
-                out[ci["id"]][col_key] = tid if (matched and tid) else (
-                    "" if not matched else "")
+                        matched_change_id = mid; break
+                if not matched_change_id:
+                    out[ci["id"]][col_key] = ""   # 빨강 '없음'
+                    continue
+                # 매칭됨 — 등록된 요구사항 이슈 IDs (list), 콤마 구분.
+                # 없으면 페이지 트래커 ID 로 폴백.
+                issue_ids = by_change.get(matched_change_id) or []
+                if isinstance(issue_ids, list) and issue_ids:
+                    out[ci["id"]][col_key] = ", ".join(str(x) for x in issue_ids)
+                else:
+                    out[ci["id"]][col_key] = tid
         return out
 
     # ── ⑨ 불러오기 (4단계 새 양식) ─────────────────────────
@@ -1411,21 +1677,44 @@ class CbController:
         trackers = project_state.get_all_trackers(proj, ver)
         results_by_id = self._compute_deploy_swe_results(change_items, trackers)
 
-        # 3) ⑤⑦ 트래커 ID (같은 정적/테스트 트래커)
+        # 3) ⑤⑦ 트래커 ID + 실제 결과 첨부 존재 검사
+        #    트래커 ID 만으로는 PASS 가 아님 — has_result() 가 True 일 때만 링크 표시
         static_tid = str(trackers.get("static") or "").strip()
         test_tid   = str(trackers.get("test")   or "").strip()
+        try:
+            static_has = bool(mw._page_static.has_result())
+        except Exception:
+            static_has = False
+        try:
+            test_has = bool(mw._page_test.has_result())
+        except Exception:
+            test_has = False
+        if not static_has:
+            static_tid = ""   # → 빨강 '없음'
+        if not test_has:
+            test_tid = ""
 
-        # SAS 첨부 안내문 — 각 페이지의 체크리스트 결과 트래커 ID
+        # ⑥ 코드리뷰 — 트래커 ID 있으면 모든 변경점 행에 동일 트래커 링크
+        #             (= 코드리뷰 결과 보고서가 트래커에 올라가있는 상태)
+        review_tid = str(trackers.get("review") or "").strip()
+
+        # SAS 첨부 안내문 — 체크리스트 결과 이슈 ID 우선, 없으면 트래커 ID 폴백
+        st_full = project_state.load_state(proj, ver) or {}
+        ur_all = st_full.get("upload_results") or {}
+        def _sas_for(k):
+            page_ur = ur_all.get(k) or {}
+            iid = (page_ur.get("checklist") or "").strip()
+            return iid or (trackers.get(k) or "")
         sas = {
-            "srs": trackers.get("srs") or "",
-            "sad": trackers.get("sad") or "",
-            "sdd": trackers.get("sdd") or "",
+            "srs": _sas_for("srs"),
+            "sad": _sas_for("sad"),
+            "sdd": _sas_for("sdd"),
         }
 
         page.apply_results(
             results_by_id,
             static_link=static_tid,
-            review_text="-",
+            review_text=review_tid,
             test_link=test_tid,
             sas=sas,
         )

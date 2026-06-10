@@ -1,73 +1,18 @@
 {
   "project": {
     "name": "PluD",
-    "ver_old": "26610101",
+    "ver_old": "A00B000000000",
     "ver_new": "A00B000000000",
-    "author": "정현진",
-    "pr_date": "2026-06-08",
+    "author": "윤희종",
+    "pr_date": "2026-06-10",
     "attendees": "윤희종, 김인규, 최해인",
     "date": ""
   },
-  "items": [
-    {
-      "title": "Main Switch 구성 변겅",
-      "jira": "",
-      "phenom": "",
-      "analysis": "",
-      "action": "",
-      "occurrence": "",
-      "customer_open": "",
-      "hzt": {
-        "NQ5 PE": "미적용",
-        "MQ4i": "미적용",
-        "LX3": "미적용",
-        "JW": "미적용",
-        "TK1": "미적용",
-        "LQ2": "미적용",
-        "SP3": "미적용",
-        "KU FL": "미적용",
-        "SG2": "미적용",
-        "NX5(30Ah)": "미적용",
-        "NX5(20Ah)": "미적용",
-        "SX3": "미적용",
-        "QY2i": "미적용",
-        "NQ6(30Ah)": "미적용",
-        "NQ6(20Ah)": "미적용"
-      },
-      "attachments": []
-    },
-    {
-      "title": "",
-      "jira": "",
-      "phenom": "",
-      "analysis": "",
-      "action": "",
-      "occurrence": "",
-      "customer_open": "",
-      "hzt": {
-        "NQ5 PE": "미적용",
-        "MQ4i": "미적용",
-        "LX3": "미적용",
-        "JW": "미적용",
-        "TK1": "미적용",
-        "LQ2": "미적용",
-        "SP3": "미적용",
-        "KU FL": "미적용",
-        "SG2": "미적용",
-        "NX5(30Ah)": "미적용",
-        "NX5(20Ah)": "미적용",
-        "SX3": "미적용",
-        "QY2i": "미적용",
-        "NQ6(30Ah)": "미적용",
-        "NQ6(20Ah)": "미적용"
-      },
-      "attachments": []
-    }
-  ],
+  "items": [],
   "spec_changes": [
     {
-      "title": "저전압 Sleep 조건 : Cell UV 추가",
-      "content": "변경 전 : Pack UV 중심 Sleep 조건 (단일 Cell 저전압 미반영)\n\n변경 후 : Cell UV OR 조건 추가\n\n--\n\n기존 Pack UV 중심 Sleep 조건에 Cell UV(FLT_CELL_UV) 추가\n\n단일 Cell 저전압이 Pack 전압 평균에 묻히는 상황 보완",
+      "title": "RS485 통신",
+      "content": "→  20260212 : [Read Data], [Snapshot] BMS Temperture data 2개 추가​\n\n→  20260409 : [Read ECU Info] SW 버전 규칙 변경​\n\n→  20260528 :\n[하위제어기 <-> BMS] 전류 Calibration 패킷 추가",
       "reason": "",
       "hzt": {
         "NQ5 PE": "미적용",
@@ -89,8 +34,169 @@
       "attachments": []
     },
     {
-      "title": "",
-      "content": "",
+      "title": "전류 Calibration 기능 추가",
+      "content": "→  실제 인가 되는 전류와 PCB 에서 측정 되는 전류 오차를 보정하기 위함.",
+      "reason": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "P-Flash Safety 영역 구분",
+      "content": "→  Safety 포함 된 함수나 파라미터들을 특정 메모리 주소영역에 할당하여 CRC 계산하도록 함.",
+      "reason": "(현대 요청)",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "프리차징 제어",
+      "content": "→  ver 1.9 : Pre-Charge S/W ON 200ms 이후 Main S/W ON​\n\n→  ver 2.0 : Pre-Charge S/W ON 100ms 이후 Main S/W ON\n\n[추가]​\n\n→  ver 2.0 : Pre-Charge 동작 중 Gate Driver Fault 발생 시 Pre-Charge 차단.",
+      "reason": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "충전, 방전 시 BMS 회로보호 조건 추가",
+      "content": "→  Sys ver 1.2 : 과전압, 과전류 500ms 동안 10회 인식 시 BMS 회로보호 발생 판단.​\n\n→  Sys ver 1.3 : 과전압, 과전류 500ms 동안 10회 인식하고 전류 1A 미만 감지 시 BMS 회로보호 발생 판단.",
+      "reason": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "BMS 회로 과온 보호 기준 변경 (발생, 해제)",
+      "content": "[발생]​\n\n→  ver 1.4 : FET 온도 센서 3개중 하나라도 만족 시​\n\n→  TSR ver 1.0 : NTC TEMP2 로만 판단 ​\n\n[해제]​\n\n→  ver 1.4 : FET 온도 센서 3개 모두 만족 시 ​\n\n→  TSR ver 1.0 : NTC TEMP2 로만 판단",
+      "reason": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "전류 방향 감지 기준",
+      "content": "→  ver 1.7.1 : (충전) 0A 이상 1A 미만 5s 이상 유지, 1A 이상 2s 이상 유지​\n\n(방전) 0A 초과 100mA 미만 5s 이상, 100mA 이상 2s 이상​\n\n→  ver 1.8 : (충전) 0A 이상 1A 미만 500ms 이상 유지, 1A 이상 200ms 이상 유지​\n\n(방전) 0A 초과 100mA 미만 500ms 이상, 100mA 이상 200ms 이상",
+      "reason": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "Cycle Wakeup 주기 변경",
+      "content": "→  ver 1.2 : 200s​\n\n→  ver 1.3 : 600s",
+      "reason": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    },
+    {
+      "title": "B2B Main MOSFET 제어 로직 변경 (충전, 방전)​",
+      "content": "[충전]​\n\n→  ver 1.7.1 : 충전 금지 상태에서 방전 전류 1A 이상 5초 초과 감지 시 Main charge FET ON​\n\n→  ver 1.8 : 충전 금지 상태에서 방전 전류 1A 이상 감지 시 즉시 Main charge FET ON​\n\n[방전]​\n\n→  ver 1.7.1 : 방전 금지 상태에서 충전 전류 1A 이상 5초 초과 감지 시 Main discharge FET ON​\n\n→  ver 1.8 : 방전 금지 상태에서 충전 전류 1A 이상 감지 시 즉시 Main discharge FET ON​",
       "reason": "",
       "hzt": {
         "NQ5 PE": "미적용",
@@ -112,29 +218,5 @@
       "attachments": []
     }
   ],
-  "hzt_items": [
-    {
-      "title": "",
-      "jira": "",
-      "content": "",
-      "occurrence": "",
-      "hzt": {
-        "NQ5 PE": "미적용",
-        "MQ4i": "미적용",
-        "LX3": "미적용",
-        "JW": "미적용",
-        "TK1": "미적용",
-        "LQ2": "미적용",
-        "SP3": "미적용",
-        "KU FL": "미적용",
-        "SG2": "미적용",
-        "NX5(30Ah)": "미적용",
-        "NX5(20Ah)": "미적용",
-        "SX3": "미적용",
-        "QY2i": "미적용",
-        "NQ6(30Ah)": "미적용",
-        "NQ6(20Ah)": "미적용"
-      }
-    }
-  ]
+  "hzt_items": []
 }

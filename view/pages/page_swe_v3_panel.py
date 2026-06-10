@@ -21,8 +21,9 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QLineEdit, QPlainTextEdit, QCheckBox, QScrollArea, QTableWidget,
-    QTableWidgetItem, QHeaderView, QFileDialog, QComboBox,
+    QLineEdit, QPlainTextEdit, QTextEdit, QCheckBox, QScrollArea,
+    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QComboBox,
+    QSplitter, QListWidget, QListWidgetItem,
 )
 
 from config import C
@@ -458,7 +459,10 @@ class ChangePointMatchingCard(QFrame):
             f"#cpm_card {{ background:{C.BG_CARD};"
             f"  border:1px solid {C.BDR}; border-radius:10px; }}")
         self._items: list[dict] = []     # 변경점 목록
-        self._req_inputs: list[QLineEdit] = []
+        # 변경점별 입력칸 — [[QLineEdit, QLineEdit, ...], [], [QLineEdit], ...]
+        self._req_inputs: list[list] = []
+        # 변경점별 입력칸 레이아웃 (행 추가/제거용)
+        self._inputs_layouts: list = []
         self._build()
 
     def _build(self):
@@ -520,27 +524,94 @@ class ChangePointMatchingCard(QFrame):
         self._mapping_scroll.setWidget(self._mapping_inner)
         bl.addWidget(self._mapping_scroll, stretch=2)
 
-        # 요구사항 DIFF 영역 (placeholder, 컨트롤러가 set_req_diff 로 채움)
+        # 요구사항 DIFF 영역 — 좌측 ID 리스트 + 우측 변경 전/후 내용
         diff_lbl = QLabel("📑  요구사항 DIFF (ID 별 정렬)")
         diff_lbl.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
         diff_lbl.setStyleSheet(
             f"color:{C.T1}; background:transparent; padding:6px 0 0 0;")
         bl.addWidget(diff_lbl)
-        self._diff_text = QPlainTextEdit()
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.setStyleSheet(
+            f"QSplitter::handle {{ background:{C.BDR}; }}")
+
+        # 좌측: ID 리스트
+        self._id_list = QListWidget()
+        self._id_list.setStyleSheet(
+            f"QListWidget {{ background:#FFFFFF; color:{C.T0};"
+            f"  border:1px solid {C.BDR}; border-radius:5px;"
+            f"  padding:4px; font-size:10px; }}"
+            f"QListWidget::item {{ padding:5px 8px; border-radius:3px; }}"
+            f"QListWidget::item:selected {{ background:#DBEAFE; color:{C.T0}; }}"
+            f"QListWidget::item:hover {{ background:#F1F5F9; }}")
+        self._id_list.currentRowChanged.connect(self._on_id_selected)
+        split.addWidget(self._id_list)
+
+        # 우측: 선택된 ID 의 변경 전/후 (HTML 하이라이트)
+        self._diff_text = QTextEdit()
         self._diff_text.setReadOnly(True)
         self._diff_text.setPlaceholderText(
-            "DIFF 추출 후 요구사항 ID 별로 정렬된 변경점이 여기에 표시됩니다.")
+            "좌측에서 요구사항 ID 를 선택하면 변경 전/후 내용이 표시됩니다.")
         self._diff_text.setStyleSheet(
-            f"QPlainTextEdit {{ background:#F8FAFC; color:{C.T1};"
+            f"QTextEdit {{ background:#F8FAFC; color:{C.T1};"
             f"  border:1px solid {C.BDR}; border-radius:5px;"
-            f"  padding:8px 12px; font-family:Consolas; font-size:10px; }}")
-        bl.addWidget(self._diff_text, stretch=3)
+            f"  padding:8px 12px; font-family:Consolas; font-size:11px; }}")
+        split.addWidget(self._diff_text)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 3)
+        bl.addWidget(split, stretch=3)
+
+        # 그룹 데이터 — {id: {"before": str, "after": str, "type": "🔴/🟡/🟢"}}
+        self._diff_groups: dict = {}
 
         cl.addWidget(body, stretch=1)
 
+    def _on_id_selected(self, row: int):
+        if row < 0:
+            self._diff_text.clear(); return
+        item = self._id_list.item(row)
+        if item is None:
+            return
+        rid = item.data(Qt.ItemDataRole.UserRole)
+        grp = self._diff_groups.get(rid)
+        if not grp:
+            self._diff_text.clear(); return
+        import html as _html
+        before = (grp.get("before") or "").strip()
+        after  = (grp.get("after")  or "").strip()
+
+        # 색상 — 변경 전 = 빨강 배경, 변경 후 = 초록 배경
+        RED_BG, RED_FG   = "#FEE2E2", "#991B1B"
+        GREEN_BG, GREEN_FG = "#DCFCE7", "#166534"
+        HDR_STYLE = (
+            "padding:4px 8px; font-weight:700; border-radius:3px;"
+            " margin:4px 0 2px 0; display:block;")
+        LINE_STYLE = (
+            "padding:2px 8px; display:block; white-space:pre-wrap;"
+            " font-family:Consolas;")
+
+        def _block(lines: str, bg: str, fg: str, header: str) -> str:
+            parts = [
+                f'<div style="background:{bg}; color:{fg}; {HDR_STYLE}">'
+                f'{_html.escape(header)}</div>'
+            ]
+            for ln in (lines or "").split("\n"):
+                parts.append(
+                    f'<div style="background:{bg}; color:{fg}; {LINE_STYLE}">'
+                    f'{_html.escape(ln) or "&nbsp;"}</div>'
+                )
+            return "".join(parts)
+
+        html_parts = []
+        if before:
+            html_parts.append(_block(before, RED_BG, RED_FG, "━━━ [변경 전] ━━━"))
+        if after:
+            html_parts.append(_block(after, GREEN_BG, GREEN_FG, "━━━ [변경 후] ━━━"))
+        self._diff_text.setHtml("".join(html_parts))
+
     # ── 데이터 입력 ───────────────────────────────────────────
     def apply_items(self, items: list):
-        """변경점 목록 반영 → 매핑 입력 행 생성."""
+        """변경점 목록 반영 → 매핑 입력 행 생성. 각 변경점 옆에 [+] 로 입력칸 추가."""
         self._items = list(items or [])
         # 기존 행 제거
         while self._mapping_lay.count() > 1:
@@ -551,6 +622,7 @@ class ChangePointMatchingCard(QFrame):
             if w is not None:
                 w.setParent(None); w.deleteLater()
         self._req_inputs.clear()
+        self._inputs_layouts.clear()
         if not self._items:
             empty = QLabel("📭  변경점이 없습니다. [변경점 불러오기] 를 먼저 실행하세요.")
             empty.setStyleSheet(
@@ -558,44 +630,165 @@ class ChangePointMatchingCard(QFrame):
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._mapping_lay.insertWidget(0, empty)
             return
-        for it in self._items:
+        for ridx, it in enumerate(self._items):
             cid  = str(it.get("id") or "")
             name = str(it.get("name") or "")
             row = QFrame()
             row.setStyleSheet(
                 f"background:#F8FAFC; border:1px solid {C.BDR}; border-radius:5px;")
-            rl = QHBoxLayout(row); rl.setContentsMargins(10, 6, 10, 6); rl.setSpacing(8)
+            # 한 줄 가로 배치: [라벨] [ID칸들...] [+ 추가]
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(10, 6, 10, 6); rl.setSpacing(8)
+
+            # 좌측: 변경점 라벨 (충분한 폭)
             lbl = QLabel(f"#{cid}  {name}")
             lbl.setFont(QFont(C.FUI, 10))
             lbl.setStyleSheet(f"color:{C.T0}; background:transparent;")
+            lbl.setMinimumWidth(440)
             lbl.setWordWrap(True)
-            rl.addWidget(lbl, 2)
-            le = QLineEdit()
-            le.setPlaceholderText("예: SwR_FR_001, SwR_NFR_005")
-            le.setFixedHeight(28)
-            le.setStyleSheet(
-                f"QLineEdit {{ background:#FFFFFF; color:{C.T0};"
-                f"  border:1px solid {C.BDR}; border-radius:4px;"
-                f"  padding:2px 8px; font-size:10px; }}"
-                f"QLineEdit:focus {{ border-color:{C.BLUE}; }}")
-            rl.addWidget(le, 1)
+            rl.addWidget(lbl)
+
+            # 중간: 입력칸들 + [+ 추가] 버튼이 가로로 쌓일 컨테이너
+            inputs_lay = QHBoxLayout()
+            inputs_lay.setContentsMargins(0, 0, 0, 0); inputs_lay.setSpacing(4)
+
+            # [+ 추가] 버튼 — 항상 끝부분에 위치 (입력칸이 그 앞에 누적됨)
+            add_btn = QPushButton("➕  ID 추가")
+            add_btn.setFixedHeight(26)
+            add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            add_btn.setToolTip("ID 입력칸 추가")
+            add_btn.setStyleSheet(
+                f"QPushButton {{ background:transparent; color:{C.BLUE};"
+                f"  border:1px dashed {C.BLUE}; border-radius:4px;"
+                f"  padding:1px 10px; font-size:10px; font-weight:600; }}"
+                f"QPushButton:hover {{ background:{C.BLUE_LT}; }}")
+            add_btn.clicked.connect(
+                lambda _checked=False, _r=ridx: self._add_input_for_row(_r))
+            inputs_lay.addWidget(add_btn)
+            inputs_lay.addStretch(1)
+            rl.addLayout(inputs_lay, 1)
+
             self._mapping_lay.insertWidget(self._mapping_lay.count() - 1, row)
-            self._req_inputs.append(le)
+            self._req_inputs.append([])
+            # add_btn 도 보관해서 입력칸 추가 시 그 앞에 삽입
+            self._inputs_layouts.append((inputs_lay, add_btn))
+
+    def _add_input_for_row(self, row_idx: int):
+        """변경점 row_idx 에 입력칸 1 개 추가 — [+ 추가] 버튼 바로 앞에 삽입."""
+        if row_idx < 0 or row_idx >= len(self._inputs_layouts):
+            return
+        inputs_lay, add_btn = self._inputs_layouts[row_idx]
+
+        wrap = QFrame()
+        wrap.setStyleSheet("background:transparent; border:none;")
+        wl = QHBoxLayout(wrap)
+        wl.setContentsMargins(0, 0, 0, 0); wl.setSpacing(2)
+
+        le = QLineEdit()
+        le.setPlaceholderText("예: SwR_FR_001")
+        le.setFixedHeight(26)
+        le.setMinimumWidth(120)
+        le.setMaximumWidth(180)
+        le.setStyleSheet(
+            f"QLineEdit {{ background:#FFFFFF; color:{C.T0};"
+            f"  border:1px solid {C.BDR}; border-radius:4px;"
+            f"  padding:2px 8px; font-size:10px; }}"
+            f"QLineEdit:focus {{ border-color:{C.BLUE}; }}")
+        wl.addWidget(le)
+
+        rm_btn = QPushButton("✕")
+        rm_btn.setFixedSize(20, 20)
+        rm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        rm_btn.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C.T3};"
+            f"  border:none; border-radius:10px; font-size:10px; }}"
+            f"QPushButton:hover {{ background:{C.RED}; color:#FFFFFF; }}")
+        rm_btn.clicked.connect(
+            lambda _checked=False, _r=row_idx, _w=wrap, _le=le:
+                self._remove_input(_r, _le, _w))
+        wl.addWidget(rm_btn)
+
+        # [+ 추가] 버튼 바로 앞에 삽입
+        add_idx = inputs_lay.indexOf(add_btn)
+        if add_idx < 0:
+            add_idx = inputs_lay.count() - 1
+        inputs_lay.insertWidget(add_idx, wrap)
+
+        self._req_inputs[row_idx].append(le)
+
+    def _remove_input(self, row_idx: int, le, wrap):
+        if row_idx < 0 or row_idx >= len(self._req_inputs):
+            return
+        try:
+            self._req_inputs[row_idx].remove(le)
+        except ValueError:
+            pass
+        try:
+            wrap.setParent(None); wrap.deleteLater()
+        except Exception:
+            pass
 
     def set_req_diff(self, text: str):
-        """요구사항 DIFF (ID 별 정렬) 텍스트 영역에 표시."""
+        """레거시 호환 — 텍스트 한 덩어리. ID 그룹화 없이 그냥 표시."""
+        self._diff_groups = {}
+        self._id_list.clear()
         self._diff_text.setPlainText(text or "")
 
+    def set_req_diff_groups(self, groups: dict):
+        """ID 별 그룹 dict 로 좌측 리스트 + 우측 본문 갱신.
+
+        groups: {id: {"before": str, "after": str, "type": "🔴"|"🟡"|"🟢"}}
+          · 🔴 = 신규 (after 만 있음)
+          · 🟢 = 삭제 (before 만 있음)
+          · 🟡 = 변경 (둘 다 있고 내용 다름)
+        """
+        self._diff_groups = dict(groups or {})
+        self._id_list.clear()
+        if not self._diff_groups:
+            self._diff_text.setPlainText(
+                "(요구사항 ID 패턴이 감지되지 않았습니다)")
+            return
+        for rid in sorted(self._diff_groups.keys()):
+            grp = self._diff_groups[rid]
+            mark = grp.get("type") or ""
+            item = QListWidgetItem(f"{mark}  {rid}")
+            item.setData(Qt.ItemDataRole.UserRole, rid)
+            self._id_list.addItem(item)
+        # 첫 항목 자동 선택
+        self._id_list.setCurrentRow(0)
+
     def get_req_diff(self) -> str:
-        """현재 요구사항 DIFF 텍스트."""
+        """현재 우측 텍스트 (AI 분석용 컨텍스트)."""
+        # ID 그룹이 있으면 전체 합쳐서 반환
+        if self._diff_groups:
+            parts = []
+            for rid in sorted(self._diff_groups.keys()):
+                grp = self._diff_groups[rid]
+                parts.append(f"━━━ {rid} ━━━")
+                if grp.get("before"):
+                    parts.append("[변경 전]\n" + grp["before"])
+                if grp.get("after"):
+                    parts.append("[변경 후]\n" + grp["after"])
+                parts.append("")
+            return "\n".join(parts)
         return self._diff_text.toPlainText()
 
     # ── 결과 수집 ─────────────────────────────────────────────
     def get_mappings(self) -> list:
-        """[{"change_id":..., "change_name":..., "req_ids": [str,...]}, ...]"""
+        """[{"change_id":..., "change_name":..., "req_ids": [str,...]}, ...]
+
+        각 변경점의 입력칸 N 개에서 ID 를 모음 (빈 칸은 제외).
+        """
         out = []
-        for it, le in zip(self._items, self._req_inputs):
-            req_ids = [s.strip() for s in (le.text() or "").split(",") if s.strip()]
+        for it, les in zip(self._items, self._req_inputs):
+            req_ids = []
+            for le in (les or []):
+                try:
+                    text = (le.text() or "").strip()
+                except Exception:
+                    text = ""
+                if text:
+                    req_ids.append(text)
             out.append({
                 "change_id":   str(it.get("id") or ""),
                 "change_name": str(it.get("name") or ""),

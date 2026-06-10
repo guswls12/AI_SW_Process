@@ -141,35 +141,11 @@ class ReviewWorker(QObject):
             # ① 변경점 요약
             # 주의: claude-sonnet-4-6 은 assistant prefill 미지원 → temperature=0 만 사용
 
-            # ★ 요약 프롬프트 요구사항 플레이스홀더 — req_text 제공 시에만 삽입
-            if self.req_text:
-                req_analysis_principle = (
-                    "- 요구사항이 제공된 경우, 각 조건이 코드의 어느 위치"
-                    "(파일명+함수명+라인번호)에 구현됐는지 매핑한다.\n"
-                    "- 요구사항 조건에 해당하는 코드가 없으면 \"미구현\"으로 표기한다."
-                )
-                req_section = (
-                    "\n---\n\n"
-                    "### 2. 요구사항 ↔ 코드 매핑\n\n"
-                    "요구사항의 각 조건이 코드의 어느 위치에 구현됐는지 아래 표 형식으로 매핑한다.\n"
-                    "이 섹션은 반드시 출력한다. 생략 불가.\n\n"
-                    "| 요구사항 조건 | 구현 위치 | 구현 여부 |\n"
-                    "|---|---|---|\n"
-                    "| 조건 설명 | `[파일명] 함수명()`, 라인 N | 구현 / 미구현 / 부분구현 |\n\n"
-                    "### 3. 요구사항 충족 여부\n\n"
-                    "요구사항 조건별 코드 충족 여부를 종합 요약한다.\n"
-                    "이 섹션은 반드시 출력한다. 생략 불가.\n\n"
-                    "| 번호 | 요구사항 조건 | 충족 | 비고 |\n"
-                    "|---|---|---|---|\n"
-                    "| 1 | 조건 | ✅ / ❌ / ⚠️ 부분 | 근거 또는 미구현 이유 |"
-                )
-            else:
-                req_analysis_principle = ""
-                req_section            = ""
-
+            # ★ 요구사항 ↔ 코드 매핑 / 요구사항 충족 여부 섹션은 사용자 요청으로
+            #   요약 출력에서 제외 (2026-06). 플레이스홀더는 빈 문자열로 채워 호환만 유지.
             summary_system = _SYS_SUMMARY.format(
-                req_analysis_principle=req_analysis_principle,
-                req_section=req_section,
+                req_analysis_principle="",
+                req_section="",
             )
 
             summary_text = ""

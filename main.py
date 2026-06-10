@@ -84,6 +84,8 @@ class InputShim(QObject):
     change_register_all_requested = pyqtSignal(list)
     spec_register_requested       = pyqtSignal(dict)
     hzt_register_requested        = pyqtSignal(dict)
+    spec_register_all_requested   = pyqtSignal(list)
+    hzt_register_all_requested    = pyqtSignal(list)
 
     def __init__(self, spec_page: SpecChangePage, review_page: ReviewPage,
                  result_shim: "ResultShim"):
@@ -109,6 +111,11 @@ class InputShim(QObject):
         # ① 사양 변경 페이지 — 사양변경/수평전개 탭 [📤 등록] → CB 업로드로 전파
         spec_page.spec_register_requested.connect(self.spec_register_requested)
         spec_page.hzt_register_requested.connect(self.hzt_register_requested)
+        # 사양변경/수평전개 — [📤 전체 등록] 일괄 처리
+        spec_page.spec_register_all_requested.connect(
+            self.spec_register_all_requested)
+        spec_page.hzt_register_all_requested.connect(
+            self.hzt_register_all_requested)
 
     # ── 코드 DIFF 추출 버튼 클릭 시 params 구성 ──────────────
     def _on_diff_btn(self):
@@ -449,8 +456,21 @@ class MainWindow(QMainWindow):
             self._cb.on_register_spec_change)
         self._input.hzt_register_requested.connect(
             self._cb.on_register_hzt_item)
-        # ① 사양 변경 페이지 — [📥 트래커에서 불러오기] 버튼
+        self._input.spec_register_all_requested.connect(
+            self._cb.on_register_all_spec_changes)
+        self._input.hzt_register_all_requested.connect(
+            self._cb.on_register_all_hzt_items_bulk)
+        # ① 사양 변경 페이지 — [📥 불러오기] 버튼
         self._page_spec.load_requested.connect(self._cb.on_spec_page_load)
+        # ① 사양 변경 페이지 — [💾 페이지 저장] 버튼 → 상태바 메시지
+        self._page_spec.saved_now.connect(self._on_spec_saved_now)
+        # ⑧ OPEN 항목 / ⑨ 배포 리뷰 — [💾 페이지 저장] 버튼 → project_state 저장
+        self._page_open.saved_now.connect(
+            lambda: self._on_page_saved_now("⑧ OPEN 항목", "open_items",
+                                            self._page_open))
+        self._page_deploy.saved_now.connect(
+            lambda: self._on_page_saved_now("⑨ 배포 리뷰", "deploy_review",
+                                            self._page_deploy))
         # ② SRS / ③ SAD / ④ SDD / ⑤ 정적 / ⑥ 코드리뷰 / ⑦ 설계자 테스트
         # — [📥 불러오기] 헤더 버튼 (page_key 와 함께 공통 핸들러로 전달)
         self._page_srs.load_requested.connect(
@@ -487,9 +507,12 @@ class MainWindow(QMainWindow):
             page.save_clicked.connect(
                 lambda: self._sb.showMessage(
                     "ℹ  이 페이지의 결과물 저장 기능은 추후 설계 예정입니다."))
+        # ② ③ ④ 헤더 [📤 CB 업로드] 는 SweReviewController.on_upload_all 가 처리.
+        # ① 사양변경, ⑤ 정적, ⑦ 테스트 페이지는 아직 업로드 핸들러 미연결 — 안내.
+        for page in (self._page_spec, self._page_static, self._page_test):
             page.upload_clicked.connect(
                 lambda: self._sb.showMessage(
-                    "ℹ  CB 업로드는 ⑥ 코드리뷰 결과 페이지에서만 활성화됩니다."))
+                    "ℹ  이 페이지의 CB 업로드는 추후 설계 예정입니다."))
 
         # ── ⑧ OPEN 항목 & 잔여 조치 ─────────────────────────────
         # [💾 결과물 저장] 헤더 버튼은 일단 상태바 안내 (추후 MD/HTML 저장 시 확장)
@@ -580,6 +603,44 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     # ── 엑셀/HTML 추출 (기존 main.py 와 동일) ─────────────────
+    def _on_spec_saved_now(self, path: str):
+        """① 사양변경 [💾 페이지 저장] 결과를 상태바에 표시."""
+        if path.startswith("❌"):
+            self._sb.showMessage(path)
+        else:
+            import os as _os
+            shortpath = _os.path.basename(path) if path else "spec_state.json"
+            self._sb.showMessage(
+                f"💾  ① 사양 변경 페이지 저장 완료 — {shortpath}",
+                10_000)
+
+    def _on_page_saved_now(self, page_label: str, state_key: str, page):
+        """⑧ OPEN 항목 / ⑨ 배포 리뷰 [💾 페이지 저장] — project_state JSON 에 저장.
+
+        Args:
+          page_label : 상태바 메시지용 라벨 (예: "⑧ OPEN 항목")
+          state_key  : project_state.json 의 키 ('open_items' / 'deploy_review')
+          page       : to_state() 메서드를 가진 페이지 인스턴스
+        """
+        proj = getattr(self, "_project_name", "") or ""
+        ver  = getattr(self, "_project_version", "") or ""
+        if not proj or not ver:
+            self._sb.showMessage(
+                f"⚠  {page_label} 저장 실패 — 프로젝트/버전이 설정되지 않았습니다.",
+                10_000)
+            return
+        try:
+            from core import project_state
+            st = project_state.load_state(proj, ver) or {}
+            st[state_key] = page.to_state()
+            project_state.save_state(proj, ver, st)
+            self._sb.showMessage(
+                f"💾  {page_label} 페이지 저장 완료 — '{proj}' v{ver}",
+                10_000)
+        except Exception as e:
+            self._sb.showMessage(
+                f"❌  {page_label} 저장 실패: {str(e)[:200]}", 10_000)
+
     def _on_export_full_xlsx(self):
         ui_diff_export.export_full_xlsx(
             self, self._result, self._sb,

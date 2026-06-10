@@ -445,10 +445,6 @@ class ReqInput(QWidget):
             ("수정 후 요구사항", "te_after",  C.ADD_FG),
         ):
             col = QVBoxLayout(); col.setSpacing(4)
-            l = QLabel(label)
-            l.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
-            l.setStyleSheet(f"color:{C.T2}; background:transparent;")
-            col.addWidget(l)
 
             # 파일 드롭존 — 컴팩트 (DropZone 기본 minimumHeight=150 을 override)
             dz_role = label.replace("요구사항", "파일")  # "수정 전 파일" / "수정 후 파일"
@@ -471,6 +467,7 @@ class ReqInput(QWidget):
 
             te = QTextEdit()
             te.setObjectName("te_info")
+            te.setAcceptRichText(False)   # paste 시 서식 제거 — plain text 만
             te.setStyleSheet(
                 f"QTextEdit#te_info {{ background:#FFFFFF; color:{C.T0}; "
                 f"border:1px solid {C.BDR}; border-radius:6px; padding:8px 10px; "
@@ -641,17 +638,16 @@ class AnalysisFilePanel(QWidget):
         vl = QVBoxLayout(card); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(0)
 
         # 헤더: 왼쪽 색상 바 + 제목 + 부제목
-        hdr = QFrame(); hdr.setFixedHeight(44)
+        hdr = QFrame(); hdr.setFixedHeight(40)
         hdr.setStyleSheet(
             f"background:#EEF2F7; border-bottom:1px solid {C.BDR};"
             "border-top-left-radius:10px; border-top-right-radius:10px;")
-        hl = QHBoxLayout(hdr); hl.setContentsMargins(0, 0, 12, 0); hl.setSpacing(10)
-        # 왼쪽 색상 바
-        accent = QFrame(); accent.setFixedSize(4, 44)
-        accent.setStyleSheet(
-            f"background:{BLUE}; border-top-left-radius:10px;")
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(14, 0, 14, 0); hl.setSpacing(8)
+        accent = QFrame(); accent.setFixedSize(3, 18)
+        accent.setStyleSheet(f"background:{BLUE}; border-radius:2px;")
         hl.addWidget(accent)
-        t = QLabel("🔀  파일 변경점"); t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
+        t = QLabel("📋  변경 전/후 코드 입력")
+        t.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
         t.setStyleSheet(f"color:{BLUE}; background:transparent;")
         hl.addWidget(t); hl.addStretch()
         vl.addWidget(hdr)

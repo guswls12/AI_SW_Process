@@ -69,24 +69,9 @@ class CbUploadDialog(QDialog):
         vlay.addWidget(self._tracker_input)
         vlay.addSpacing(14)
 
-        # ── 상위 이슈 (선택) ──────────────────────────────────
-        vlay.addWidget(self._mk_label("상위 이슈 (선택)"))
+        # 상위 이슈 입력 UI 제거 — _parent_input 더미 (빈 값) 유지하여
+        # 외부 코드 (text() 호출) 호환 보장
         self._parent_input = QLineEdit()
-        self._parent_input.setText(last_parent_id)
-        self._parent_input.setPlaceholderText(
-            "예: https://codebeamer.slworld.com/cb/issue/987588 또는 987588 "
-            "(비우면 트래커 최상위에 생성)")
-        self._parent_input.setStyleSheet(self._line_style())
-        self._parent_input.setMinimumHeight(28)
-        vlay.addWidget(self._parent_input)
-
-        parent_hint = QLabel(
-            "└ 입력 시 새 이슈가 해당 항목의 하위(child)로 등록됩니다.")
-        parent_hint.setStyleSheet(
-            f"color:{C.T3}; background:transparent; border:none;"
-            "font-size:9px; padding:2px 0 0 4px;")
-        vlay.addWidget(parent_hint)
-        vlay.addSpacing(14)
 
         # ── 수평전개 동기 옵션 ──────────────────────────────────
         # 체크 시 별도 트래커에 수평전개 전용 이슈 생성 (차종별 적용여부 매핑).
@@ -121,16 +106,6 @@ class CbUploadDialog(QDialog):
         self._chk_hzt.toggled.connect(self._hzt_tracker_input.setEnabled)
 
         vlay.addSpacing(14)
-
-        # ── 미리보기 ──────────────────────────────────────────
-        vlay.addWidget(self._mk_label("이슈 요약(제목) 미리보기"))
-        self._preview = QLabel(summary_preview or f"[{project_name}] SW 배포 파이프라인")
-        self._preview.setWordWrap(True)
-        self._preview.setStyleSheet(
-            f"color:{C.T0}; background:{C.BG_INPUT};"
-            f"  border:1px solid {C.BDR}; border-radius:4px;"
-            f"  padding:8px 12px; font-family:'{C.FCODE}'; font-size:10px;")
-        vlay.addWidget(self._preview)
 
         # 안내 문구 — 호출자가 hint 를 지정하지 않으면 기본 문구
         hint_text = body_hint or (

@@ -69,13 +69,16 @@ class CbBulkUploadWorker(QObject):
                 f"📝  변경점 {i}/{total} 「{title}」 등록 중...")
 
             try:
+                # 각 item 의 개별 parent_item_id 우선, 없으면 전역 parent 사용
+                item_parent = str(item.get("parent_item_id") or "").strip() \
+                              or self.parent_item_id
                 # 상위 이슈 링크를 본문 최상단에 prepend (있을 때만)
-                if self.parent_item_id:
+                if item_parent:
                     parent_url = (
-                        f"{self.fetcher.base_url}/issue/{self.parent_item_id}")
+                        f"{self.fetcher.base_url}/issue/{item_parent}")
                     parent_link_md = (
                         f"> 📎 **상위 항목**: "
-                        f"[#{self.parent_item_id}]({parent_url})\n\n---\n\n"
+                        f"[#{item_parent}]({parent_url})\n\n---\n\n"
                     )
                     body_with_parent = parent_link_md + body_md
                 else:
@@ -89,7 +92,7 @@ class CbBulkUploadWorker(QObject):
                 # CB sanitizer 는 same-domain 절대 URL <img> 는 통과시킴.
                 pre_upload_map: dict = {}   # filename → att_id (parent 첨부)
                 _IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
-                if self.parent_item_id:
+                if item_parent:
                     user_atts_for_pre = [
                         p for p in (item.get("attachments") or []) if p]
                     img_atts_for_pre = [
@@ -100,12 +103,12 @@ class CbBulkUploadWorker(QObject):
                         self.progress.emit(
                             f"⬆  변경점 {i}/{total} 본문 인라인용 사전 업로드 "
                             f"({len(img_atts_for_pre)}개 이미지 → 상위 "
-                            f"#{self.parent_item_id})...")
+                            f"#{item_parent})...")
                     for p in img_atts_for_pre:
                         fname = os.path.basename(p)
                         try:
                             resp = self.fetcher.add_attachment(
-                                self.parent_item_id, p) or {}
+                                item_parent, p) or {}
                             att_id = (
                                 str(resp.get("id") or
                                     resp.get("attachmentId") or
@@ -158,12 +161,12 @@ class CbBulkUploadWorker(QObject):
                         item.get("jira_link") or "", main_fv,
                         description=description_html,
                         description_format="Html",
-                        parent_item_id=self.parent_item_id)
+                        parent_item_id=item_parent)
                 else:
                     resp = self.fetcher.create_item(
                         self.tracker_id, summary, description_html,
                         description_format="Html",
-                        parent_item_id=self.parent_item_id,
+                        parent_item_id=item_parent,
                         custom_fields=None)
                 target_id = str(
                     resp.get("id") or resp.get("itemId") or "").strip()
@@ -376,11 +379,13 @@ class CbBulkUploadWorker(QObject):
                 # 수평전개 이슈는 위에서 메인 생성 전에 이미 만들었음 (단계 0.5)
 
                 results.append({
-                    "idx":     idx,
-                    "title":   title,
-                    "item_id": target_id,
-                    "url":     f"{self.fetcher.base_url}/issue/{target_id}",
-                    "hzt_url": hzt_url,
+                    "idx":            idx,
+                    "title":          title,
+                    "item_id":        target_id,
+                    "url":            f"{self.fetcher.base_url}/issue/{target_id}",
+                    "hzt_url":        hzt_url,
+                    # 호출 측 매칭용 — bulk_items 에 넣었던 parent_item_id 그대로 echo
+                    "parent_item_id": item_parent,
                 })
             except Exception as e:
                 failures.append({

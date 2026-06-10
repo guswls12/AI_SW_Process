@@ -477,6 +477,19 @@ class CbHistoricalSubTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build()
+        # 변경점 목록 UI 제거 호환 stub — 컨트롤러가 change_list/change_fetch_btn
+        # 속성에 접근해도 안전하도록 더미 객체 부착.
+        class _DummyList:
+            def set_loading_text(self, *_a, **_kw): pass
+            def set_items(self, *_a, **_kw): pass
+            def get_selected_items(self): return []
+        class _DummyBtn:
+            def setEnabled(self, *_a, **_kw): pass
+            def setText(self, *_a, **_kw): pass
+        from PyQt6.QtWidgets import QLineEdit
+        self.change_list      = _DummyList()
+        self.change_fetch_btn = _DummyBtn()
+        self.le_change_tracker = QLineEdit()   # UI 에 안 들어감 — 텍스트만 빈값
 
     def _build(self):
         self.setStyleSheet(f"background:{C.BG_APP};")
@@ -494,24 +507,7 @@ class CbHistoricalSubTab(QWidget):
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(16, 16, 16, 16); lay.setSpacing(14)
 
-        # ── 1) 변경점 트래커 (사양변경) ────────────────────────────
-        lay.addWidget(self._build_fetch_card(
-            title="사양변경 트래커 — 변경점 목록",
-            icon="🔗",
-            id_label="변경점 트래커 ID",
-            id_attr="le_change_tracker",
-            btn_text="📥  변경점 목록 불러오기",
-            btn_attr="change_fetch_btn",
-            on_click=lambda: self.change_fetch_requested.emit(
-                self.le_change_tracker.text().strip()),
-        ))
-        # 변경점 목록 — fetch 결과 렌더링
-        self.change_list = _ItemListRenderer(
-            "변경점 목록",
-            icon="📋", empty_text="아직 불러온 변경점이 없습니다.")
-        lay.addWidget(self.change_list)
-
-        # ── 2) 전사 과거차 트래커 ─────────────────────────────────
+        # ── 전사 과거차 트래커 ─────────────────────────────────
         # 코드리뷰 ⑥ > 과거차 섹션에 등록된 트래커를 그대로 사용 — 불러오기
         # 클릭 시 컨트롤러가 cb_config.json 의 section_past 에서 트래커 목록을
         # 읽어 _FetchSelectDialog 로 다중 선택 받음.
@@ -608,32 +604,30 @@ class CbHistoricalSubTab(QWidget):
         return card
 
     # ── 외부 접근용 (컨트롤러가 사용 예정) ────────────────────
-    def get_change_tracker_id(self) -> str: return self.le_change_tracker.text().strip()
+    # 변경점 목록 UI 제거됨 (사용자 요청) — 컨트롤러 호환용 no-op stub
+    def get_change_tracker_id(self) -> str: return ""
 
-    # ── 리스트 렌더 위임 ──────────────────────────────────────
     def set_change_items(self, items: list):
-        """fetch 결과로 변경점 목록 채움."""
-        self.change_list.set_items(items)
+        """no-op — 변경점 목록 UI 제거됨."""
+        pass
 
     def set_historical_items(self, items: list):
         """fetch 결과로 과거차 목록 채움."""
         self.historical_list.set_items(items)
 
     def get_selected_change_items(self) -> list:
-        """체크된 변경점만 반환 (AI 분석 대상)."""
-        return self.change_list.get_selected_items()
+        """no-op — 변경점 목록 UI 제거됨. AI 분석에서 변경점 컨텍스트는
+        ① 사양변경 페이지에서 직접 가져오는 흐름으로 대체.
+        """
+        return []
 
     def get_selected_historical_items(self) -> list:
         """체크된 과거차만 반환 (AI 컨텍스트)."""
         return self.historical_list.get_selected_items()
 
     def set_change_fetch_running(self, running: bool):
-        """변경점 fetch 진행 중 상태 — 버튼 비활성 + 로딩 표시."""
-        self.change_fetch_btn.setEnabled(not running)
-        self.change_fetch_btn.setText(
-            "⏳  불러오는 중..." if running else "📥  변경점 목록 불러오기")
-        if running:
-            self.change_list.set_loading_text("⏳  불러오는 중...")
+        """no-op — 변경점 fetch 버튼 제거됨."""
+        pass
 
     def set_historical_fetch_running(self, running: bool):
         """과거차 fetch 진행 중 상태."""
@@ -1254,12 +1248,13 @@ class AiResultDropdownPanel(QWidget):
             f"color:{C.BLUE_DK}; background:transparent;")
         ctl_row.addWidget(self._progress_lbl)
 
-        # [📤 CB 업로드] — 결과 ≥1개 일 때 활성
-        self._upload_btn = QPushButton("📤  CB 업로드")
+        # [📤 체크리스트 CB 업로드] — 항상 활성 (업로드 시점에 체크리스트 로드 여부 검증)
+        self._upload_btn = QPushButton("📤  체크리스트 CB 업로드")
         self._upload_btn.setFixedHeight(30)
         self._upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._upload_btn.setToolTip(
-            "분석 완료된 변경점들을 각각 별도의 Codebeamer 이슈로 업로드")
+            "ASPICE 체크리스트 검토 결과만 Codebeamer 이슈로 업로드합니다.\n"
+            "(매칭 결과는 별도 — 변경점 매칭 결과 탭의 버튼 사용)")
         self._upload_btn.setStyleSheet(
             f"QPushButton {{ background:{C.BLUE}; color:#FFFFFF;"
             f"  border:1px solid {C.BLUE}; border-radius:5px;"
@@ -1290,9 +1285,9 @@ class AiResultDropdownPanel(QWidget):
             f"font-size:12px; text-align:center; padding:60px 20px;'>"
             f"<div style='font-size:42px; margin-bottom:12px;'>🤖</div>"
             f"<div style='font-weight:600; color:{C.T2}; margin-bottom:6px;'>"
-            f"AI 인사이트 결과가 여기에 표시됩니다</div>"
-            f"<div>INPUT 탭에서 변경점 + 과거차 fetch → 체크리스트 작성 → "
-            f"[🤖 AI 인사이트 실행] 클릭</div>"
+            f"체크리스트 AI 분석 결과가 여기에 표시됩니다</div>"
+            f"<div>INPUT 탭 → [📂 체크리스트 파일 로드] → "
+            f"[🤖 AI 분석 실행] 클릭</div>"
             f"</div>")
 
     # ── 공개 API ────────────────────────────────────────────
@@ -1376,7 +1371,7 @@ class AiResultDropdownPanel(QWidget):
         self._upload_btn.setEnabled(bool(enabled))
         self._upload_btn.setText(
             "⏳  업로드 중..." if not enabled and self._results
-            else "📤  CB 업로드")
+            else "📤  체크리스트 CB 업로드")
 
     # ── 내부 ────────────────────────────────────────────────
     def _current_card_id(self) -> str:

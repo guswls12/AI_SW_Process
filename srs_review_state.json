@@ -41,5 +41,13 @@
       ]
     },
     "checklist_locked": false
+  },
+  "요구사항": {
+    "name": "요구사항",
+    "change_load": {
+      "no_change": false,
+      "comment": ""
+    },
+    "aspice_checklist_path": "H:/01.Project/NX5_PLBM-Software Requirements Specification Review Report_AI적용여부 검토의견_배준역_260520.xlsx"
   }
 }

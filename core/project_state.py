@@ -37,7 +37,6 @@ PAGE_KEYS = (
     "deploy",  # ⑨ 배포 리뷰
 )
 
-# 페이지 키 → 한글 라벨 (다이얼로그/⑨ 점검표 등에서 사용)
 PAGE_LABELS = {
     "spec":   "① 사양 변경",
     "srs":    "② SWE.1 SRS",
@@ -52,6 +51,7 @@ PAGE_LABELS = {
 
 # Codebeamer 트래커 URL 패턴
 CB_TRACKER_URL_FMT = "https://codebeamer.slworld.com/cb/tracker/{tid}"
+CB_ISSUE_URL_FMT   = "https://codebeamer.slworld.com/cb/issue/{iid}"
 
 # 파일명 접미사
 _FILE_SUFFIX = ".json"
@@ -232,11 +232,21 @@ def set_all_trackers(project_name: str, version: str,
 
 
 def build_tracker_url(tracker_id: str) -> str:
-    """⑨ 점검표 '링크' 컬럼용 코드비머 트래커 URL."""
+    """트래커(컨테이너) URL — '/cb/tracker/{ID}' 형태."""
     tid = str(tracker_id or "").strip()
     if not tid:
         return ""
     return CB_TRACKER_URL_FMT.format(tid=tid)
+
+
+def build_issue_url(issue_id: str) -> str:
+    """이슈(개별 항목) URL — '/cb/issue/{ID}' 형태.
+    ⑨ 배포리뷰 등에서 등록된 이슈 ID 를 표시할 때 사용.
+    """
+    iid = str(issue_id or "").strip()
+    if not iid:
+        return ""
+    return CB_ISSUE_URL_FMT.format(iid=iid)
 
 
 # ══════════════════════════════════════════════════════════════

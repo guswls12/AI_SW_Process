@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 
 from config import C
 from ._common import BasePage
-from core.project_state import build_tracker_url
+from core.project_state import build_tracker_url, build_issue_url
 
 
 # ── 달력 팝업 라이트 모드 QSS ─────────────────────────────────
@@ -64,30 +64,38 @@ _LIGHT_CAL_QSS = (
 # ── 4단계 (2026-06) 새 양식 — 변경점 N 행 + 컬럼별 PASS/NG ────────
 # 컬럼: [분류] | 사양변경 리스트 | SRS | SAD | SDD | 정적 | 코드리뷰 | 테스트 | OPEN/CLOSE
 
-_DR_W_CAT    = 70
-_DR_W_TITLE  = 240
+_DR_W_CAT    = 100   # '사양변경' 글자 짤리지 않게 확대
+_DR_W_TITLE  = 260
 _DR_W_RESULT = 100   # SRS/SAD/SDD/정적/코드리뷰/테스트 각각
-_DR_W_STATE  = 90    # OPEN/CLOSE
+_DR_W_STATE  = 110
 
 _DR_HEADER_H = 36
 _DR_ROW_H    = 36
-_DR_RESULT_ROW_H = 60   # Result 행은 첨부 안내문 한 줄 들어가서 2배 높이
+_DR_RESULT_ROW_H = 36   # ⑧ 과 동일 — 데이터 행 높이와 일치
+
+# 셀 공통 border (셀 사이 흰색 구분선)
+_DR_CELL_BORDER = "border:1px solid #E2E8F0; border-right:2px solid #FFFFFF;"
 
 
 # ══════════════════════════════════════════════════════════════
 #  점검표 셀 헬퍼 (사용자 편집 불가 — 전부 QLabel)
 # ══════════════════════════════════════════════════════════════
+_TBL_HDR_BG = C.BLUE   # 하늘색 (#8BBDD0) — ⑧⑨ 표 헤더 공통
+
+
 def _dr_hdr(text: str, width: int = 0) -> QLabel:
     lb = QLabel(text)
     lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
     lb.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
     lb.setStyleSheet(
-        f"color:#FFFFFF; background:{C.BLUE_DK};"
-        f" border:1px solid {C.BLUE_DK}; padding:0;")
+        f"color:#FFFFFF; background:{_TBL_HDR_BG};"
+        f" border:1px solid {_TBL_HDR_BG};"
+        f" border-right:2px solid #FFFFFF;"
+        f" padding:0;")
     lb.setMinimumHeight(_DR_HEADER_H)
     lb.setMaximumHeight(_DR_HEADER_H)
     if width > 0:
-        lb.setFixedWidth(width)
+        lb.setMinimumWidth(width)
     return lb
 
 
@@ -100,7 +108,7 @@ def _dr_item(text: str, width: int = 0) -> QLabel:
         f" border:1px solid {C.BDR}; padding:4px 14px;")
     lb.setMinimumHeight(_DR_ROW_H)
     if width > 0:
-        lb.setFixedWidth(width)
+        lb.setMinimumWidth(width)
     return lb
 
 
@@ -114,7 +122,7 @@ def _dr_result(width: int = 0) -> QLabel:
         f" border:1px solid {C.BDR}; padding:4px 8px;")
     lb.setMinimumHeight(_DR_ROW_H)
     if width > 0:
-        lb.setFixedWidth(width)
+        lb.setMinimumWidth(width)
     return lb
 
 
@@ -141,30 +149,22 @@ def _dr_color_cell(width: int = 0) -> QLabel:
     lb.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
     lb.setStyleSheet(
         f"color:{C.T3}; background:{C.BG_CARD};"
-        f" border:1px solid {C.BDR}; padding:4px 6px;")
+        f" {_DR_CELL_BORDER} padding:4px 6px;")
     lb.setMinimumHeight(_DR_ROW_H)
     if width > 0:
-        lb.setFixedWidth(width)
+        lb.setMinimumWidth(width)
     lb.setOpenExternalLinks(True)
     lb.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
     return lb
 
 
 def _dr_state_combo(width: int = 0):
-    """OPEN/CLOSE 콤보 — 사용자 편집 가능."""
-    from PyQt6.QtWidgets import QComboBox
-    cb = QComboBox()
-    cb.addItems(["OPEN", "CLOSE"])
-    cb.setMinimumHeight(_DR_ROW_H)
+    """OPEN/CLOSE 토글 — ⑧ OPEN 항목 페이지의 _StateToggle 재사용."""
+    from .page_open_items import _StateToggle
+    tg = _StateToggle()
     if width > 0:
-        cb.setFixedWidth(width)
-    cb.setStyleSheet(
-        f"QComboBox {{ background:{C.BG_INPUT}; color:{C.T0};"
-        f"  border:1px solid {C.BDR}; padding:2px 8px;"
-        f"  font-size:10px; font-weight:700; }}"
-        f"QComboBox QAbstractItemView {{ background:#FFFFFF;"
-        f"  color:{C.T0}; selection-background-color:#DBEAFE; }}")
-    return cb
+        tg.setMinimumWidth(width)
+    return tg
 
 
 def _dr_result_summary(width: int = 0) -> QLabel:
@@ -174,11 +174,11 @@ def _dr_result_summary(width: int = 0) -> QLabel:
     lb.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
     lb.setStyleSheet(
         f"color:{C.T3}; background:{C.BG_CARD};"
-        f" border:1px solid {C.BDR}; padding:4px 6px;")
+        f" {_DR_CELL_BORDER} padding:4px 6px;")
     lb.setMinimumHeight(_DR_RESULT_ROW_H)
     lb.setMaximumHeight(_DR_RESULT_ROW_H)
     if width > 0:
-        lb.setFixedWidth(width)
+        lb.setMinimumWidth(width)
     return lb
 
 
@@ -328,6 +328,7 @@ class DeployReviewPage(BasePage):
     """⑨ 배포 리뷰."""
 
     load_requested = pyqtSignal()   # [📥 불러오기] 클릭
+    saved_now      = pyqtSignal()   # [💾 페이지 저장] — main.py 가 project_state 저장
 
     def __init__(self, parent=None):
         super().__init__("⑨", "배포 리뷰", parent)
@@ -391,6 +392,20 @@ class DeployReviewPage(BasePage):
             f"QPushButton:hover {{ background:{C.ACCENT_H}; }}")
         self.load_btn.clicked.connect(self.load_requested.emit)
         hl.addWidget(self.load_btn)
+
+        # 페이지 저장 — 다른 페이지의 [💾 페이지 저장] 과 동일 동작
+        self.save_now_btn = QPushButton("💾  페이지 저장")
+        self.save_now_btn.setFixedHeight(28)
+        self.save_now_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_now_btn.setToolTip(
+            "현재 변경점 행 상태 + 결재란 내용을 즉시 저장합니다.")
+        self.save_now_btn.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C.BLUE};"
+            f"  border:1px solid {C.BLUE}; border-radius:5px;"
+            f"  padding:2px 14px; font-size:11px; font-weight:700; }}"
+            f"QPushButton:hover {{ background:{C.BLUE_LT}; }}")
+        self.save_now_btn.clicked.connect(self.saved_now.emit)
+        hl.addWidget(self.save_now_btn)
         cl.addWidget(hdr)
 
         # 본문 — 그리드 표
@@ -436,7 +451,10 @@ class DeployReviewPage(BasePage):
         ]
         for c, (lbl, w) in enumerate(cols):
             self._grid.addWidget(_dr_hdr(lbl, width=w), 0, c)
-        self._grid.setColumnStretch(8, 0)
+        # 컬럼별 stretch 비율 — 결과 컬럼이 가로 폭 흡수해서 페이지 가득 채움
+        col_stretch = (1, 4, 2, 2, 2, 2, 2, 2, 2)   # cat, title, SRS, SAD, SDD, 정적, 코드리뷰, 테스트, 상태
+        for c, s in enumerate(col_stretch):
+            self._grid.setColumnStretch(c, s)
 
         # 빈 상태 메시지
         self._empty_msg = QLabel(
@@ -478,15 +496,15 @@ class DeployReviewPage(BasePage):
         cl.addWidget(hdr)
 
         body = QWidget(); body.setStyleSheet("background:transparent;")
+        # 작성자/검토자 좌우 배치
         bl = QHBoxLayout(body); bl.setContentsMargins(14, 14, 14, 14); bl.setSpacing(10)
 
         # 작성자 / 검토자 — 입력 가능 (배포 승인자는 CB 에서 직접 결재)
         self.box_writer   = _ApprovalBox("작성자",   editable=True)
         self.box_reviewer = _ApprovalBox("검토자",   editable=True)
 
-        bl.addWidget(self.box_writer)
-        bl.addWidget(self.box_reviewer)
-        bl.addStretch(1)   # 두 칸만 남아 좌측 정렬 — 가운데 채움
+        bl.addWidget(self.box_writer, 1)
+        bl.addWidget(self.box_reviewer, 1)
         cl.addWidget(body)
         return card
 
@@ -579,8 +597,8 @@ class DeployReviewPage(BasePage):
         result_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         result_lbl.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
         result_lbl.setStyleSheet(
-            f"color:#FFFFFF; background:{C.BLUE_DK};"
-            f" border:1px solid {C.BLUE_DK}; padding:4px 8px;")
+            f"color:#FFFFFF; background:{_TBL_HDR_BG};"
+            f" border:1px solid {_TBL_HDR_BG}; padding:4px 8px;")
         result_lbl.setMinimumHeight(_DR_RESULT_ROW_H)
         result_lbl.setMaximumHeight(_DR_RESULT_ROW_H)
         self._grid.addWidget(result_lbl, row_idx, 0, 1, 2)
@@ -646,7 +664,7 @@ class DeployReviewPage(BasePage):
         cell.setText(v)
         cell.setStyleSheet(
             f"color:{fg}; background:{bg};"
-            f" border:1px solid {C.BDR}; padding:4px 6px;"
+            f" {_DR_CELL_BORDER} padding:4px 6px;"
             f" font-weight:700; font-size:11px;")
 
     def _apply_cell(self, cell: QLabel, value: str):
@@ -663,7 +681,7 @@ class DeployReviewPage(BasePage):
             cell.setText("N/A")
             cell.setStyleSheet(
                 f"color:#92400E; background:#FEF3C7;"
-                f" border:1px solid {C.BDR}; padding:4px 6px;"
+                f" {_DR_CELL_BORDER} padding:4px 6px;"
                 f" font-weight:700;")
             cell.setProperty("status", "yellow")
             cell.setToolTip("이 페이지의 변경 없음 — 단계 N/A")
@@ -672,20 +690,29 @@ class DeployReviewPage(BasePage):
             cell.setText("없음")
             cell.setStyleSheet(
                 f"color:#B91C1C; background:#FEE2E2;"
-                f" border:1px solid {C.BDR}; padding:4px 6px;"
+                f" {_DR_CELL_BORDER} padding:4px 6px;"
                 f" font-weight:700;")
             cell.setProperty("status", "red")
             cell.setToolTip("이 변경점이 매칭된 트래커가 없음")
             return
-        # 트래커 ID (숫자 또는 문자열) — 초록 + 링크
-        url = build_tracker_url(v)
-        cell.setText(f'<a href="{url}" style="color:#15803D; text-decoration:underline;">#{v}</a>')
+        # 이슈 ID (콤마로 여러개 가능) — 초록 + 각 ID 별 링크
+        ids = [s.strip() for s in v.split(",") if s.strip()]
+        if not ids:
+            cell.setText("-")
+            return
+        # 각 ID 별로 /cb/issue/{ID} 링크
+        links = []
+        for iid in ids:
+            url = build_issue_url(iid)
+            links.append(
+                f'<a href="{url}" style="color:#15803D; text-decoration:underline;">#{iid}</a>')
+        cell.setText(", ".join(links))
         cell.setStyleSheet(
             f"color:#15803D; background:#DCFCE7;"
-            f" border:1px solid {C.BDR}; padding:4px 6px;"
+            f" {_DR_CELL_BORDER} padding:4px 6px;"
             f" font-weight:700;")
         cell.setProperty("status", "green")
-        cell.setToolTip(f"트래커 #{v} 열기")
+        cell.setToolTip("CB 에서 이슈 열기")
 
     def _clear_data_rows(self):
         """헤더(row 0) 외 모든 데이터 행 + Result 행 제거."""

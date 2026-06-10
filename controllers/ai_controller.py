@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config                 import C
+from core                   import project_state
 from core.worker            import BASE_CONTEXT_FILES, OPTION_MD_FILES
 from workers.prompts_worker import ReviewWorker, ContinueVulnWorker
 from integrations.codebeamer import _BASE as CB_BASE
@@ -34,6 +35,9 @@ class AiController:
         self._continue_thread = None
         self._continue_worker = None
         self._continuation_context: dict | None = None
+        # ★ 직전 AI 호출의 변경 함수 ↔ 사양변경 매핑 — _on_summary 에서 요약 결과
+        #   상단에 정적 표 형태로 prepend 하기 위해 보관 (AI 분석에는 미사용).
+        self._last_user_mapping_md: str = ""
 
     # ──────────────────────────────────────────────────────────
     #  ① AI 분석 진입점 — _input.ai_clicked 시그널 슬롯
@@ -89,10 +93,18 @@ class AiController:
                 mw._sb.showMessage("⏸  매핑 취소 — 분석을 중단했습니다.")
                 return
             mapping = dlg.mapping
-            # 매핑 정보를 마크다운 표로 변환 후 code_info 앞에 prepend
+            # 매핑 정보를 마크다운 표로 변환 후 code_info 앞에 prepend (취약점 분석용)
             mapping_md = self._build_mapping_md(mapping, spec_list)
             old_ci = params.get("code_info") or ""
             params["code_info"] = mapping_md + ("\n\n" + old_ci if old_ci else "")
+            # ★ 매핑 결과를 project_state 에 저장 — ⑧ OPEN 항목 페이지에서
+            #   변경점별 OK/NG 판정에 사용 (변경점에 매핑된 함수가 있으면 OK)
+            self._persist_review_mapping(mapping, spec_list)
+            # ★ 요약 결과 상단에 prepend 할 사용자 매핑 표 (참고용 정적 표시)
+            self._last_user_mapping_md = self._build_user_mapping_display(
+                mapping, spec_list)
+        else:
+            self._last_user_mapping_md = ""
 
         # ── ② 컨텍스트 로딩 (다이얼로그 띄우기 전 — 토큰 카운트용) ──
         include_opts = params.get("include_opts", {})
@@ -241,7 +253,11 @@ class AiController:
     #  ② 워커 결과 슬롯
     # ──────────────────────────────────────────────────────────
     def _on_summary(self, text: str, truncated: bool = False):
-        self._mw._result.set_summary(text)
+        # ★ 사용자가 분석 직전 확정한 변경점 ↔ 변경 함수 매핑 표를 요약 결과
+        #    상단에 정적 prepend (AI 출력 아님, 참고용 표시)
+        prefix = self._last_user_mapping_md or ""
+        full_text = (prefix + "\n\n" + text) if prefix else text
+        self._mw._result.set_summary(full_text)
         if truncated:
             self._mw._sb.showMessage(
                 "⚠  변경점 요약이 토큰 한도에서 잘림 — 결과 상단 경고 참조. "
@@ -442,6 +458,79 @@ class AiController:
             model_limit=MODEL_LIMIT,
         )
         return dlg.exec() == QDialog.DialogCode.Accepted  # Accepted=그래도 진행
+
+    # ──────────────────────────────────────────────────────────
+    #  변경 함수 ↔ 사양변경 매핑 — project_state 영속화
+    # ──────────────────────────────────────────────────────────
+    def _persist_review_mapping(self, mapping: list, spec_changes: list) -> None:
+        """SpecMappingDialog 확정 결과를 project_state 에 저장.
+
+        저장 위치: state["review_mapping"] = {
+            "spec_changes": [{"id":..., "name":...}, ...],   # 매핑 다이얼로그가 사용한 사양변경 리스트
+            "func_map":     [{"file":..., "function":..., "spec_id":...}, ...],
+        }
+        ⑧ OPEN 항목 페이지가 변경점 OK/NG 판정 시 이 데이터를 읽음:
+          · ① 사양변경 페이지 변경점의 title 과 spec_changes[i].name 을 substring 매칭
+          · 매칭된 spec_id 에 함수 1개라도 있으면 OK, 없으면 NG
+        """
+        mw = self._mw
+        proj = getattr(mw, "_project_name", "") or ""
+        ver  = getattr(mw, "_project_version", "") or ""
+        if not proj or not ver:
+            return
+        try:
+            state = project_state.load_state(proj, ver)
+            state["review_mapping"] = {
+                "spec_changes": [
+                    {"id": str(sc.get("id", "") or ""),
+                     "name": str(sc.get("name", "") or "")}
+                    for sc in (spec_changes or [])
+                ],
+                "func_map": [
+                    {"file":     str(it.get("file", "") or ""),
+                     "function": str(it.get("function", "") or ""),
+                     "spec_id":  str(it.get("spec_id", "") or "")}
+                    for it in (mapping or [])
+                ],
+            }
+            project_state.save_state(proj, ver, state)
+        except Exception:
+            pass
+
+    # ──────────────────────────────────────────────────────────
+    #  사용자 확정 매핑 — 요약 결과 상단 표시용 (AI 분석 무관)
+    # ──────────────────────────────────────────────────────────
+    @staticmethod
+    def _build_user_mapping_display(mapping: list, spec_changes: list) -> str:
+        """SpecMappingDialog 확정 결과를 요약 패널 상단에 정적 표로 표시.
+        AI 분석에는 영향 없음 — 사용자가 직전에 선택한 매핑을 그대로 보여주기만 함.
+        """
+        if not mapping:
+            return ""
+        spec_lookup = {sc.get("id", ""): sc.get("name", "")
+                       for sc in (spec_changes or [])}
+        lines = [
+            "## 🔗 변경점 ↔ 변경 코드 매핑 (사용자 확정)",
+            "",
+            "> 분석 직전 매핑 다이얼로그에서 확정한 매핑입니다 — 참고용 정적 표시.",
+            "",
+            "| 파일 | 함수 | 매칭 사양변경 |",
+            "|------|------|---------------|",
+        ]
+        for item in mapping:
+            f   = item.get("file") or ""
+            fn  = item.get("function") or ""
+            sid = item.get("spec_id") or ""
+            fn_disp = "(전역 영역)" if fn == "__global__" else f"`{fn}()`"
+            if sid:
+                name = spec_lookup.get(sid, "")
+                spec_disp = f"**#{sid}** — {name}" if name else f"**#{sid}**"
+            else:
+                spec_disp = "_미매칭_"
+            lines.append(f"| `{f}` | {fn_disp} | {spec_disp} |")
+        lines.append("")
+        lines.append("---")
+        return "\n".join(lines)
 
     # ──────────────────────────────────────────────────────────
     #  변경 함수 ↔ 사양변경 매핑 마크다운 빌더

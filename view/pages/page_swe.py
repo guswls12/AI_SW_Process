@@ -23,6 +23,8 @@ from PyQt6.QtWidgets import (
     QScrollArea,
 )
 
+import re
+
 from config import C
 from view.ui_result import ReqInput, ReqDiffView
 from ._common import BasePage, TabStack, PlaceholderBody
@@ -31,6 +33,57 @@ from .page_srs_review_panel import (
     CbHistoricalSubTab, ChecklistReviewSubTab,
     AiResultDropdownPanel,
 )
+
+
+# ── 요구사항 ID 별 정렬 DIFF 헬퍼 ──────────────────────────────
+# DIFF 추출 결과(old/new 라인)에서 요구사항 ID (SwR_XX_NNN / SwArch_*/ SwDD_*)
+# 패턴 기준으로 그룹화해 텍스트로 정렬. OUTPUT '변경점 매칭 결과' 탭에 표시.
+_REQ_ID_RE = re.compile(
+    r"\b(?:SwR|SwArch|SwDD|SwRR)_[A-Za-z]+_\d+\b"
+)
+
+
+def _group_lines_by_req_id(lines):
+    """라인 리스트 → {id: [라인,...]} dict."""
+    groups: dict = {}
+    current_id = None
+    for line in (lines or []):
+        text = str(line or "")
+        m = _REQ_ID_RE.search(text)
+        if m:
+            current_id = m.group(0)
+            groups.setdefault(current_id, [])
+            groups[current_id].append(text)
+        elif current_id is not None:
+            groups[current_id].append(text)
+    return groups
+
+
+def _build_req_diff_groups(old_lines: list, new_lines: list) -> dict:
+    """요구사항 ID 별 변경 타입과 before/after 본문 dict.
+
+    반환: {id: {"before": str, "after": str, "type": "🔴"|"🟡"|"🟢"}}
+      · 🔴 신규 (after 만)  · 🟢 삭제 (before 만)  · 🟡 변경 (둘 다, 내용 다름)
+      · 변경 없는 ID 는 제외
+    """
+    old_g = _group_lines_by_req_id(old_lines)
+    new_g = _group_lines_by_req_id(new_lines)
+    out: dict = {}
+    for rid in (set(old_g.keys()) | set(new_g.keys())):
+        before = "\n".join(old_g.get(rid, [])).strip()
+        after  = "\n".join(new_g.get(rid, [])).strip()
+        if not before and not after:
+            continue
+        if before and not after:
+            tp = "🟢"   # 삭제
+        elif after and not before:
+            tp = "🔴"   # 신규
+        elif before == after:
+            continue    # 동일 — 표시 안 함
+        else:
+            tp = "🟡"   # 변경
+        out[rid] = {"before": before, "after": after, "type": tp}
+    return out
 
 
 class _SrsLikeInputCard(QWidget):
@@ -49,24 +102,30 @@ class _SrsLikeInputCard(QWidget):
         self.inline_diff_view: "ReqDiffView | None" = None
         self._req_diff_btn: QPushButton = None
         self._build()
+        # ⑥ 코드리뷰 페이지와 동일한 DropZone 크기 (ui_result.py 기본값)
+        #   · DropZone        : setMinimumHeight(150) — ui_result.py line 193
+        #   · 직접입력 텍스트박스: setFixedHeight(140)   — ui_result.py line 480
+        try:
+            for attr in ("dz_te_before", "dz_te_after"):
+                dz = getattr(self._req_input, attr, None)
+                if dz is not None:
+                    dz.setMinimumHeight(150)
+                    dz.setMaximumHeight(16777215)   # fixed 해제 → expand 허용
+            for attr in ("te_before", "te_after"):
+                te = getattr(self._req_input, attr, None)
+                if te is not None:
+                    te.setFixedHeight(140)
+        except Exception:
+            pass
 
     def _build(self):
         # 기존 보라(#7E60C0) → 프로그램 메인 BLUE 통일.
         # 변수명은 본문 흐름 가독성 위해 ACCENT 로 유지.
         ACCENT = C.BLUE
         self.setStyleSheet(f"background:{C.BG_APP};")
+        # 내부 스크롤 제거 — 카드 자연 높이로 DIFF 버튼까지 한 화면에 노출
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { background:transparent; border:none; }")
-
-        inner = QWidget(); inner.setStyleSheet(f"background:{C.BG_APP};")
-        il = QVBoxLayout(inner)
-        il.setContentsMargins(16, 16, 16, 16); il.setSpacing(14)
 
         # 변경 전/후 요구사항서 입력 카드.
         self._req_input = ReqInput()
@@ -113,19 +172,13 @@ class _SrsLikeInputCard(QWidget):
         self._req_diff_btn = btn
         bl.addWidget(btn)
 
-        # DIFF 추출 결과 뷰 — stretch=1 로 창 높이에 비례해서 끝까지 채움
-        # (DIFF 미추출 시에도 빈 영역이 시각적으로 확보됨 — 추출 후 본문 표시)
-        self.inline_diff_view = ReqDiffView()
-        self.inline_diff_view.setMinimumHeight(240)
-        bl.addWidget(self.inline_diff_view, stretch=1)
+        # 사용자 요청 (2026-06): INPUT 탭에서 DIFF VIEW 제거.
+        # DIFF 결과는 OUTPUT 탭의 '변경점 VIEW' 에서만 표시.
+        self.inline_diff_view = None
 
-        # 카드 안의 body + il 안의 card 도 stretch 로 확장 → DIFF 뷰가
-        # 최종적으로 사용 가능한 모든 vertical 공간을 차지하게 됨.
+        # 카드 본문 마무리 — scroll 없이 카드 직접 노출
         cl.addWidget(body, stretch=1)
-        il.addWidget(card, stretch=1)
-
-        scroll.setWidget(inner)
-        lay.addWidget(scroll)
+        lay.addWidget(card)
 
     def _on_diff_clicked(self):
         if self._req_input is None:
@@ -153,9 +206,8 @@ class _SrsLikeInputCard(QWidget):
         if self._req_input:
             self._req_input.set_req_diff_text(text)
     def render_diff(self, old_lines: list, new_lines: list):
-        """추출된 DIFF 결과를 인라인 뷰(버튼 아래)에 렌더링."""
-        if self.inline_diff_view:
-            self.inline_diff_view.render(old_lines, new_lines)
+        """INPUT 카드의 inline DIFF VIEW 제거됨 — OUTPUT 탭의 diff_view 로만 표시."""
+        pass
     def set_running(self, running: bool):
         if self._req_diff_btn:
             self._req_diff_btn.setEnabled(not running)
@@ -224,13 +276,15 @@ class SwePage(BasePage):
         self.ai_result_panel = AiResultDropdownPanel()
 
         # ── INPUT 탭 1: 변경 전/후 입력 + 변경점 불러오기 ───────
-        # _SrsLikeInputCard + ChangePointLoadCard 를 세로로 적층한 컨테이너
+        # ⑥ 코드리뷰 결과 페이지처럼 페이지 전체 가로폭을 사용 (max 폭 제한 X).
+        # 두 카드는 자연 높이로 적층, 남는 공간은 아래 stretch 가 흡수.
         input_tab1 = QWidget()
         input_tab1.setStyleSheet(f"background:{C.BG_APP};")
         it1_lay = QVBoxLayout(input_tab1)
         it1_lay.setContentsMargins(16, 16, 16, 16); it1_lay.setSpacing(12)
-        it1_lay.addWidget(self.input_card, stretch=2)
-        it1_lay.addWidget(self.change_load_card, stretch=1)
+        it1_lay.addWidget(self.input_card)
+        it1_lay.addWidget(self.change_load_card)
+        it1_lay.addStretch(1)
 
         _suffix = "" if self._name == "아키텍처" else "서"
         input_tabs = TabStack(
@@ -361,6 +415,12 @@ class SwePage(BasePage):
         # 입력 탭의 인라인 뷰 + OUTPUT 탭의 변경점 VIEW 양쪽에 동일 렌더
         self.input_card.render_diff(old_lines, new_lines)
         self.diff_view.render(old_lines, new_lines)
+        # OUTPUT 의 '변경점 매칭 결과' 탭 — 요구사항 ID 별 그룹 dict 채움
+        try:
+            groups = _build_req_diff_groups(old_lines, new_lines)
+            self.change_match_card.set_req_diff_groups(groups)
+        except Exception:
+            pass
 
     # ══════════════════════════════════════════════════════════════
     #  Phase 2-3 — 세션 자동 저장/복원 (srs_review=True 페이지 한정)

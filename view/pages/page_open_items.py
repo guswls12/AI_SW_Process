@@ -29,7 +29,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QGridLayout, QHBoxLayout, QVBoxLayout,
-    QLabel, QPushButton, QLineEdit, QScrollArea, QComboBox,
+    QLabel, QPushButton, QLineEdit, QScrollArea,
 )
 
 from config import C
@@ -50,18 +50,26 @@ _HEADER_H = 34
 # ══════════════════════════════════════════════════════════════
 #  공용 셀 헬퍼
 # ══════════════════════════════════════════════════════════════
+_TBL_HDR_BG = C.BLUE   # 하늘색 (#8BBDD0) — ⑧⑨ 표 헤더 공통
+
+
 def _hdr_cell(text: str, width: int = 0) -> QLabel:
     lb = QLabel(text)
     lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
     lb.setFont(QFont(C.FUI, 10, QFont.Weight.Bold))
     lb.setStyleSheet(
-        f"color:#FFFFFF; background:{C.BLUE_DK};"
-        f" border:1px solid {C.BLUE_DK}; padding:0;")
+        f"color:#FFFFFF; background:{_TBL_HDR_BG};"
+        f" border:1px solid {_TBL_HDR_BG};"
+        f" border-right:2px solid #FFFFFF;"
+        f" padding:0;")
     lb.setMinimumHeight(_HEADER_H)
     lb.setMaximumHeight(_HEADER_H)
     if width > 0:
         lb.setFixedWidth(width)
     return lb
+
+
+_DATA_CELL_BORDER = "border:1px solid #E2E8F0; border-right:2px solid #FFFFFF;"
 
 
 def _cat_cell(category: str) -> QLabel:
@@ -83,7 +91,7 @@ def _cat_cell(category: str) -> QLabel:
     fg, bg = color_map.get(text, (C.T3, C.BG_PANEL))
     lb.setStyleSheet(
         f"color:{fg}; background:{bg};"
-        f" border:1px solid {C.BDR}; padding:4px 6px;")
+        f" {_DATA_CELL_BORDER} padding:4px 6px;")
     lb.setFixedWidth(_W_CAT)
     lb.setMinimumHeight(_ROW_H)
     return lb
@@ -95,7 +103,7 @@ def _title_cell(idx: int, title: str) -> QLabel:
     lb.setFont(QFont(C.FUI, 10))
     lb.setStyleSheet(
         f"color:{C.T0}; background:{C.BG_CARD};"
-        f" border:1px solid {C.BDR}; padding:4px 12px;")
+        f" {_DATA_CELL_BORDER} padding:4px 12px;")
     lb.setFixedWidth(_W_TITLE)
     lb.setMinimumHeight(_ROW_H)
     return lb
@@ -108,7 +116,7 @@ def _result_cell() -> QLabel:
     lb.setFont(QFont(C.FUI, 11, QFont.Weight.Bold))
     lb.setStyleSheet(
         f"color:{C.T3}; background:{C.BG_CARD};"
-        f" border:1px solid {C.BDR}; padding:4px 6px;")
+        f" {_DATA_CELL_BORDER} padding:4px 6px;")
     lb.setFixedWidth(_W_RESULT)
     lb.setMinimumHeight(_ROW_H)
     return lb
@@ -128,23 +136,65 @@ def _apply_result(lbl: QLabel, value: str):
     lbl.setText(v)
     lbl.setStyleSheet(
         f"color:{fg}; background:{bg};"
-        f" border:1px solid {C.BDR}; padding:4px 6px;"
+        f" {_DATA_CELL_BORDER} padding:4px 6px;"
         f" font-weight:700;")
 
 
-def _state_combo() -> QComboBox:
-    """상태 — OPEN / CLOSE 콤보박스."""
-    cb = QComboBox()
-    cb.addItems(["OPEN", "CLOSE"])
-    cb.setFixedWidth(_W_STATE)
-    cb.setMinimumHeight(_ROW_H)
-    cb.setStyleSheet(
-        f"QComboBox {{ background:{C.BG_INPUT}; color:{C.T0};"
-        f"  border:1px solid {C.BDR}; padding:2px 8px;"
-        f"  font-size:10px; font-weight:700; }}"
-        f"QComboBox QAbstractItemView {{ background:#FFFFFF; color:{C.T0};"
-        f"  selection-background-color:#DBEAFE; selection-color:{C.T0}; }}")
-    return cb
+class _StateToggle(QFrame):
+    """OPEN / CLOSE 토글 — 두 버튼 중 하나만 활성색."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._state = "OPEN"
+        self.setFixedWidth(_W_STATE)
+        self.setMinimumHeight(_ROW_H)
+        self.setStyleSheet(
+            f"background:{C.BG_CARD};"
+            f" {_DATA_CELL_BORDER} padding:0;")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 2, 2, 2); lay.setSpacing(2)
+        self._btn_open  = QPushButton("OPEN")
+        self._btn_close = QPushButton("CLOSE")
+        for b in (self._btn_open, self._btn_close):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFlat(True)
+        self._btn_open.clicked.connect(lambda: self.set_state("OPEN"))
+        self._btn_close.clicked.connect(lambda: self.set_state("CLOSE"))
+        lay.addWidget(self._btn_open); lay.addWidget(self._btn_close)
+        self._restyle()
+
+    def _restyle(self):
+        for b, key, on_fg, on_bg in (
+            (self._btn_open,  "OPEN",  "#FFFFFF", "#B91C1C"),
+            (self._btn_close, "CLOSE", "#FFFFFF", "#15803D"),
+        ):
+            if self._state == key:
+                b.setStyleSheet(
+                    f"QPushButton {{ background:{on_bg}; color:{on_fg};"
+                    f"  border:none; border-radius:3px;"
+                    f"  font-size:9px; font-weight:700; padding:2px 0; }}")
+            else:
+                b.setStyleSheet(
+                    f"QPushButton {{ background:transparent; color:{C.T3};"
+                    f"  border:none; border-radius:3px;"
+                    f"  font-size:9px; font-weight:600; padding:2px 0; }}"
+                    f"QPushButton:hover {{ color:{C.T1};"
+                    f"  background:{C.BG_PANEL}; }}")
+
+    def set_state(self, value: str):
+        v = (value or "").strip().upper()
+        if v not in ("OPEN", "CLOSE"):
+            return
+        self._state = v
+        self._restyle()
+
+    def currentText(self) -> str:
+        return self._state
+
+
+def _state_combo():
+    """레거시 호환 — 새 _StateToggle 위젯 반환."""
+    return _StateToggle()
 
 
 def _comment_edit() -> QLineEdit:
@@ -170,6 +220,7 @@ class OpenItemsPage(BasePage):
     """
 
     load_requested = pyqtSignal()
+    saved_now      = pyqtSignal()   # [💾 페이지 저장] 클릭 — main.py 가 project_state 저장
 
     # 행 row dict 키
     RESULT_COLS = ("srs", "sad", "sdd", "static", "review", "test")
@@ -223,6 +274,20 @@ class OpenItemsPage(BasePage):
             f"QPushButton:hover {{ background:{C.ACCENT_H}; }}")
         self.load_btn.clicked.connect(self.load_requested.emit)
         hl.addWidget(self.load_btn)
+
+        # 페이지 저장 버튼 — 다른 페이지의 [💾 페이지 저장] 과 동일 동작
+        self.save_now_btn = QPushButton("💾  페이지 저장")
+        self.save_now_btn.setFixedHeight(28)
+        self.save_now_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_now_btn.setToolTip(
+            "현재 입력한 상태/코멘트 + 결과 셀 값을 즉시 저장합니다.")
+        self.save_now_btn.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C.BLUE};"
+            f"  border:1px solid {C.BLUE}; border-radius:5px;"
+            f"  padding:2px 14px; font-size:11px; font-weight:700; }}"
+            f"QPushButton:hover {{ background:{C.BLUE_LT}; }}")
+        self.save_now_btn.clicked.connect(self.saved_now.emit)
+        hl.addWidget(self.save_now_btn)
         cl.addWidget(hdr_card)
 
         # ── 표 본문 ────────────────────────────────────────────
@@ -352,8 +417,11 @@ class OpenItemsPage(BasePage):
         """컨트롤러가 [📥 불러오기] 시 호출.
 
         Args:
-          results_by_change_id: {change_id: {"srs":"O/X/N/A","sad":...,"sdd":...}}
+          results_by_change_id: {change_id: {"srs":"O/X/N/A","sad":...,"sdd":...,
+                                              "review":"O/X/-" (선택)}}
           static, review, test : 모든 행에 동일 적용할 값 (협의 완료)
+          ─ review 가 "" 면 results_by_change_id[cid]["review"] 를 행별로 적용
+            (⑥ 코드리뷰 AI 매핑 결과 — 변경점별 OK/NG)
         """
         for r in self._rows:
             cid = r["change_id"]
@@ -362,7 +430,9 @@ class OpenItemsPage(BasePage):
             _apply_result(r["widgets"]["sad"],    res.get("sad", "X"))
             _apply_result(r["widgets"]["sdd"],    res.get("sdd", "X"))
             _apply_result(r["widgets"]["static"], static or "X")
-            _apply_result(r["widgets"]["review"], review or "-")
+            # 코드리뷰 — review 인자 우선, 없으면 행별 res["review"], 그것도 없으면 "-"
+            review_val = review or res.get("review", "-")
+            _apply_result(r["widgets"]["review"], review_val)
             _apply_result(r["widgets"]["test"],   test   or "X")
 
     # ── 직렬화 ───────────────────────────────────────────────
@@ -403,7 +473,7 @@ class OpenItemsPage(BasePage):
             _apply_result(w["test"],   r_dict.get("test"))
             state = r_dict.get("state")
             if state in ("OPEN", "CLOSE"):
-                w["state"].setCurrentText(state)
+                w["state"].set_state(state)
             w["comment"].setText(r_dict.get("comment") or "")
 
     # ── CB 업로드용 마크다운 ──────────────────────────────────

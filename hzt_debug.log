@@ -236,3 +236,32 @@
     [fieldValues] HTTP 400 — {"message":"JSON parse error: Unrecognized field \"fieldValues\" (class com.intland.codebeamer.controller.rest.v2.model.TrackerItemModel), not marked as ignorable; nested exception is com.f
     [flat] HTTP 400 — {"message":"JSON parse error: Unrecognized field \"NQ5 PE\" (class com.intland.codebeamer.controller.rest.v2.model.TrackerItemModel), not marked as ignorable; nested exception is com.faster
 ======================================================================
+
+======================================================================
+[2026-06-10T10:42:36] HZT 차종 필드 매핑 실패 (minimal 폴백)
+  트래커 ID  : 9924076
+  생성된 이슈: #1147900 (본문은 들어갔지만 필드는 비어있음)
+  보내려한 필드:
+    - NQ5 PE = 미적용
+    - MQ4i = 미적용
+    - LX3 = 미적용
+    - JW = 미적용
+    - TK1 = 미적용
+    - LQ2 = 미적용
+    - SP3 = 미적용
+    - KU KL = 미적용
+    - SG2 = 미적용
+    - NX5_30Ah = 미적용
+    - NX5_20Ah = 미적용
+    - SX3 = 미적용
+    - QY2i = 미적용
+    - NQ6_30Ah = 미적용
+    - NQ6_20Ah = 미적용
+  시도된 payload 형식 (모두 거부됨):
+    [template(existing-item-clone)] HTTP 404 — {"message":"Field(null) is not found","resourceUri":"/"}
+    [schema(fieldId+optionId)] HTTP 404 — {"message":"Field(null) is not found","resourceUri":"/"}
+    [customFields(ChoiceFieldValue)] HTTP 400 — {"message":"JSON parse error: type attribute is not found; nested exception is com.fasterxml.jackson.databind.JsonMappingException: type attribute is not found\n at [Source: UNKNOWN; byte o
+    [customFields(value)] HTTP 400 — {"message":"JSON parse error: type attribute is not found; nested exception is com.fasterxml.jackson.databind.JsonMappingException: type attribute is not found\n at [Source: REDACTED (`Stre
+    [fieldValues] HTTP 400 — {"message":"JSON parse error: Unrecognized field \"fieldValues\" (class com.intland.codebeamer.controller.rest.v2.model.TrackerItemModel), not marked as ignorable; nested exception is com.f
+    [flat] HTTP 400 — {"message":"JSON parse error: Unrecognized field \"NQ5 PE\" (class com.intland.codebeamer.controller.rest.v2.model.TrackerItemModel), not marked as ignorable; nested exception is com.faster
+======================================================================

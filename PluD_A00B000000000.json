@@ -52,5 +52,97 @@
         "date": ""
       }
     }
+  },
+  "review_mapping": {
+    "spec_changes": [
+      {
+        "id": "1148154",
+        "name": "RS485 통신"
+      },
+      {
+        "id": "1148152",
+        "name": "전류 Calibration 기능 추가"
+      },
+      {
+        "id": "1148150",
+        "name": "P-Flash Safety 영역 구분"
+      },
+      {
+        "id": "1148148",
+        "name": "프리차징 제어"
+      },
+      {
+        "id": "1148146",
+        "name": "충전, 방전 시 BMS 회로보호 조건 추가"
+      },
+      {
+        "id": "1148144",
+        "name": "BMS 회로 과온 보호 기준 변경 (발생, 해제)"
+      },
+      {
+        "id": "1148142",
+        "name": "전류 방향 감지 기준"
+      },
+      {
+        "id": "1148140",
+        "name": "Cycle Wakeup 주기 변경"
+      },
+      {
+        "id": "1148138",
+        "name": "B2B Main MOSFET 제어 로직 변경 (충전, 방전)​"
+      }
+    ],
+    "func_map": [
+      {
+        "file": "ModeControl\\App_ModeControl.c",
+        "function": "DEFINE_THR_ENTRY(App_ModeControl_TimerThr_10ms)",
+        "spec_id": ""
+      },
+      {
+        "file": "Mode\\App_Mode.c",
+        "function": "App_Mode_Check_Current_Direction",
+        "spec_id": "1148142"
+      },
+      {
+        "file": "Mode\\App_Mode.c",
+        "function": "App_Mode_Check_ModeChage",
+        "spec_id": ""
+      },
+      {
+        "file": "Mode\\App_Mode.c",
+        "function": "APP_Mode_Check_Main_FET_Close_ByCurrent",
+        "spec_id": "1148138"
+      },
+      {
+        "file": "Mode\\App_Mode.c",
+        "function": "App_Mode_Com_EventAction",
+        "spec_id": ""
+      },
+      {
+        "file": "Mode\\App_Mode.c",
+        "function": "App_Mode_Checking",
+        "spec_id": ""
+      },
+      {
+        "file": "Mode\\App_Mode.c",
+        "function": "App_Mode_Debugby485",
+        "spec_id": ""
+      },
+      {
+        "file": "PowerSwitch\\App_PowerSwitch.c",
+        "function": "App_PowerSwitch_Set",
+        "spec_id": ""
+      },
+      {
+        "file": "PowerSwitch\\App_PowerSwitch.c",
+        "function": "App_PowerSwitch_Ctrl",
+        "spec_id": ""
+      },
+      {
+        "file": "PowerSwitch\\App_PowerSwitch.c",
+        "function": "App_PowerSwitch_ForceAllFetOnForCal",
+        "spec_id": ""
+      }
+    ]
   }
 }

@@ -435,7 +435,10 @@ class PasteableTextEdit(QTextEdit):
                     self.textCursor().insertText(f"\n[📷 {base}]\n")
                     self.image_pasted.emit(path)
                     return
-        # 이미지가 아니거나 저장 실패 → 기본 동작
+        # 텍스트 — 서식 제거하고 plain text 만 삽입
+        if source.hasText():
+            self.textCursor().insertText(source.text())
+            return
         super().insertFromMimeData(source)
 
 
@@ -1193,8 +1196,13 @@ class SpecChangePage(BasePage):
     spec_register_requested        = pyqtSignal(dict)
     # 수평전개 탭 본문 CB 등록 요청 — (item dict)
     hzt_register_requested         = pyqtSignal(dict)
+    # 사양변경 / 수평전개 — 전체 등록 일괄 처리 (list of item dict)
+    spec_register_all_requested    = pyqtSignal(list)
+    hzt_register_all_requested     = pyqtSignal(list)
     # [📥 트래커에서 불러오기] 클릭 — 컨트롤러가 CB fetch + 카테고리별 분배 수행
     load_requested                 = pyqtSignal()
+    # [💾 저장] 클릭 — main.py 가 상태바 메시지로 결과 표시 (인자: 저장 경로)
+    saved_now                      = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__("①", "사양 변경", parent)
@@ -1217,10 +1225,11 @@ class SpecChangePage(BasePage):
         self.header.save_btn.hide()
         self.header.upload_btn.hide()
 
-        # ── 트래커에서 불러오기 버튼 ───────────────────────────
+        # ── 불러오기 버튼 — 통일된 이름/디자인 ───────────────────
+        # (모든 페이지에서 동일하게 "📥 불러오기" 사용)
         # 시작 다이얼로그에서 입력한 ① 트래커 ID 의 모든 이슈를 fetch 해서
         # 이슈/사양변경/수평전개 카테고리별로 자동 분배.
-        self.load_btn = QPushButton("📥  트래커에서 불러오기")
+        self.load_btn = QPushButton("📥  불러오기")
         self.load_btn.setObjectName("btn_sub")
         self.load_btn.setFixedHeight(30)
         self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1231,6 +1240,18 @@ class SpecChangePage(BasePage):
         self.load_btn.clicked.connect(self.load_requested.emit)
         self.header.layout().addWidget(self.load_btn)
 
+        # 페이지 저장 버튼 — 현재 입력값을 spec_state.json 에 즉시 저장
+        # (모든 페이지의 [💾 페이지 저장] 과 동일 이름/동작)
+        self.save_now_btn = QPushButton("💾  페이지 저장")
+        self.save_now_btn.setObjectName("btn_sub")
+        self.save_now_btn.setFixedHeight(30)
+        self.save_now_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_now_btn.setToolTip(
+            "현재 입력한 PR 정보 + 모든 이슈/사양변경/수평전개 내용을\n"
+            "즉시 저장합니다. (프로그램 종료 시에도 자동 저장됨)")
+        self.save_now_btn.clicked.connect(self._on_save_now)
+        self.header.layout().addWidget(self.save_now_btn)
+
         # 전체 지우기 버튼
         self.clear_btn = QPushButton("🧹  전체 지우기")
         self.clear_btn.setObjectName("btn_sub")
@@ -1240,6 +1261,17 @@ class SpecChangePage(BasePage):
             "프로젝트 정보와 모든 이슈 입력을 초기 상태로 되돌립니다")
         self.clear_btn.clicked.connect(self._on_clear_all)
         self.header.layout().addWidget(self.clear_btn)
+
+    # ── 저장 버튼 핸들러 ──────────────────────────────────────
+    def _on_save_now(self):
+        """[💾 저장] 버튼 — 즉시 저장 + 결과 시그널 emit (main.py 가 상태바 표시)."""
+        try:
+            self.save_state()
+            path = self._state_file_path()
+            self.saved_now.emit(path)
+        except Exception as e:
+            # 실패해도 사용자 흐름 안 막음 — 시그널로 에러 전달
+            self.saved_now.emit(f"❌ 저장 실패: {e}")
 
     def _build_content(self):
         # 레이아웃:
@@ -1275,12 +1307,30 @@ class SpecChangePage(BasePage):
 
         self.add_body(body)
 
-        # 기본 1개 묶음 (각 이슈/사양변경/수평전개 탭마다)
-        self._add_item()
-        self._add_spec()
-        self._add_hzt()
-        # 탭 라벨 초기 갱신 (개수 = 1)
+        # 0개 상태로 시작 — placeholder 가 안내. 사용자가 [➕ 추가] 로 직접 만듦
+        # (load_state 가 이전 세션 복원하면 그 때 묶음 자동 생성됨)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
+
+    @staticmethod
+    def _mk_empty_placeholder(label: str) -> QFrame:
+        """0개 시 표시할 안내 박스 (점선 + 안내문)."""
+        ph = QFrame()
+        ph.setObjectName("empty_ph")
+        ph.setStyleSheet(
+            f"#empty_ph {{ background:transparent;"
+            f"  border:2px dashed {C.BDR}; border-radius:10px; }}")
+        pl = QVBoxLayout(ph); pl.setContentsMargins(20, 24, 20, 24); pl.setSpacing(6)
+        icon = QLabel("📭")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet("background:transparent; font-size:32px;")
+        pl.addWidget(icon)
+        msg = QLabel(f"입력된 {label}이(가) 없습니다.\n아래 [➕ {label} 추가] 버튼으로 추가하세요.")
+        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        msg.setFont(QFont(C.FUI, 10))
+        msg.setStyleSheet(f"color:{C.T3}; background:transparent;")
+        pl.addWidget(msg)
+        return ph
 
     # ── 변경점 기록 탭 — 기존 [이슈/사양변경/수평전개] TabStack 으로 감쌈 ──
     def _build_change_record_tab(self) -> QWidget:
@@ -1501,6 +1551,9 @@ class SpecChangePage(BasePage):
         self._items_holder.setStyleSheet("background:transparent;")
         self._items_lay = QVBoxLayout(self._items_holder)
         self._items_lay.setContentsMargins(0, 0, 0, 0); self._items_lay.setSpacing(14)
+        # 0개 시 placeholder (안내문)
+        self._items_empty_ph = self._mk_empty_placeholder("이슈")
+        self._items_lay.addWidget(self._items_empty_ph)
         self._inner_lay.addWidget(self._items_holder)
 
         # + 이슈 추가 버튼
@@ -1547,6 +1600,9 @@ class SpecChangePage(BasePage):
         self._spec_holder.setStyleSheet("background:transparent;")
         self._spec_lay = QVBoxLayout(self._spec_holder)
         self._spec_lay.setContentsMargins(0, 0, 0, 0); self._spec_lay.setSpacing(14)
+        # 0개 시 placeholder
+        self._spec_empty_ph = self._mk_empty_placeholder("사양변경")
+        self._spec_lay.addWidget(self._spec_empty_ph)
         iv.addWidget(self._spec_holder)
 
         # + 사양변경 추가 버튼
@@ -1592,6 +1648,9 @@ class SpecChangePage(BasePage):
         self._hzt_holder.setStyleSheet("background:transparent;")
         self._hzt_lay = QVBoxLayout(self._hzt_holder)
         self._hzt_lay.setContentsMargins(0, 0, 0, 0); self._hzt_lay.setSpacing(14)
+        # 0개 시 placeholder
+        self._hzt_empty_ph = self._mk_empty_placeholder("수평전개")
+        self._hzt_lay.addWidget(self._hzt_empty_ph)
         iv.addWidget(self._hzt_holder)
 
         # + 수평전개 추가 버튼
@@ -1790,64 +1849,53 @@ class SpecChangePage(BasePage):
         self._reset_all()
 
     def _is_empty(self) -> bool:
-        """프로젝트 정보 & 이슈가 모두 빈 상태인지 검사.
+        """프로젝트 정보 & 모든 묶음이 비어있는지 검사 (0개 또는 모두 빈 묶음).
         수행일시(QDateEdit)는 항상 값이 있으므로 빈 상태 판정에서 제외.
         """
+        # PR 정보 필드
         for fld in (self.proj_name,
                     self.proj_ver_old, self.proj_ver_new, self.proj_author,
                     self.proj_attendees):
             if fld.text().strip():
                 return False
-        if len(self._items) != 1:
-            return False
-        only = self._items[0].get_data()
-        if any(only.get(k) for k in ("title", "jira", "phenom",
+        # 이슈 묶음 — 1개도 입력값 있으면 비어있지 않음 (0개는 빈 상태)
+        for b in self._items:
+            d = b.get_data()
+            if any(d.get(k) for k in ("title", "jira", "phenom",
                                       "analysis", "action",
                                       "occurrence", "customer_open")):
+                return False
+            if d.get("attachments"):
+                return False
+            for v in (d.get("hzt") or {}).values():
+                if v not in ("미적용", False):
+                    return False
+        # 사양변경 / 수평전개 — 1개라도 비어있지 않으면
+        if any(not b.is_empty() for b in self._spec_blocks):
             return False
-        if only.get("attachments"):
+        if any(not b.is_empty() for b in self._hzt_blocks):
             return False
-        # 수평전개 — 한 칸이라도 미적용 외 상태면 비어있지 않음
-        for v in (only.get("hzt") or {}).values():
-            if v not in ("미적용", False):
-                return False
-        # 사양변경 / 수평전개 탭 본문도 모두 비어있는지 확인
-        if len(self._spec_blocks) != 1 or not self._spec_blocks[0].is_empty():
-            if any(not b.is_empty() for b in self._spec_blocks):
-                return False
-            if len(self._spec_blocks) > 1:
-                return False
-        if len(self._hzt_blocks) != 1 or not self._hzt_blocks[0].is_empty():
-            if any(not b.is_empty() for b in self._hzt_blocks):
-                return False
-            if len(self._hzt_blocks) > 1:
-                return False
         return True
 
     def _reset_all(self):
-        """프로젝트 정보 + 모든 이슈/사양변경/수평전개 본문 초기화."""
+        """프로젝트 정보 + 모든 이슈/사양변경/수평전개 본문 초기화 (0개 상태로)."""
         # 프로젝트 정보 필드 비우기 (proj_date QDateEdit 은 오늘 날짜로 리셋)
         for fld in (self.proj_name,
                     self.proj_ver_old, self.proj_ver_new, self.proj_author,
                     self.proj_attendees):
             fld.clear()
         self.proj_date.setDate(QDate.currentDate())
-        # 이슈 묶음 모두 제거 후 빈 묶음 1개 재생성
+        # 모든 묶음 제거 — 0개 상태로 (자동 1개 추가 안 함)
         for block in list(self._items):
             block.deleteLater()
         self._items.clear()
-        self._add_item()
-        # 사양변경 묶음 모두 제거 후 빈 묶음 1개 재생성
         for block in list(self._spec_blocks):
             block.deleteLater()
         self._spec_blocks.clear()
-        self._add_spec()
-        # 수평전개 묶음 모두 제거 후 빈 묶음 1개 재생성
         for block in list(self._hzt_blocks):
             block.deleteLater()
         self._hzt_blocks.clear()
-        self._add_hzt()
-        # 탭 라벨 갱신 (각 1개씩)
+        # 탭 라벨 갱신 (각 0개)
         self._refresh_tab_counts()
 
     # ── 묶음 add / delete ─────────────────────────────────────
@@ -1857,13 +1905,17 @@ class SpecChangePage(BasePage):
         block.delete_requested.connect(self._delete_item)
         block.register_requested.connect(self._register_item)
         self._items.append(block)
-        self._items_lay.addWidget(block)
+        # placeholder 앞에 삽입 — placeholder 는 항상 맨 아래
+        ph_idx = self._items_lay.indexOf(self._items_empty_ph)
+        if ph_idx >= 0:
+            self._items_lay.insertWidget(ph_idx, block)
+        else:
+            self._items_lay.addWidget(block)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
 
     def _delete_item(self, block: ChangeItemBlock):
-        if len(self._items) <= 1:
-            # 마지막 묶음은 삭제 불가 (최소 1개 유지)
-            return
+        # 0개까지 허용 — 마지막 묶음도 삭제 가능
         try:
             self._items.remove(block)
         except ValueError:
@@ -1873,6 +1925,7 @@ class SpecChangePage(BasePage):
         for i, b in enumerate(self._items, start=1):
             b.set_index(i)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
 
     def _register_item(self, block: ChangeItemBlock):
         try:
@@ -1893,12 +1946,17 @@ class SpecChangePage(BasePage):
         block.delete_requested.connect(self._delete_spec)
         block.register_requested.connect(self._register_spec)
         self._spec_blocks.append(block)
-        self._spec_lay.addWidget(block)
+        # placeholder 앞에 삽입
+        ph_idx = self._spec_lay.indexOf(self._spec_empty_ph)
+        if ph_idx >= 0:
+            self._spec_lay.insertWidget(ph_idx, block)
+        else:
+            self._spec_lay.addWidget(block)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
 
     def _delete_spec(self, block: "SpecChangeBlock"):
-        if len(self._spec_blocks) <= 1:
-            return
+        # 0개까지 허용
         try:
             self._spec_blocks.remove(block)
         except ValueError:
@@ -1907,22 +1965,23 @@ class SpecChangePage(BasePage):
         for i, b in enumerate(self._spec_blocks, start=1):
             b.set_index(i)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
 
     def _register_spec(self, block: "SpecChangeBlock"):
         """블록 [📤 등록] 클릭 — 단건 등록 시그널을 그대로 emit."""
         self.spec_register_requested.emit(block.get_data())
 
     def _register_all_spec_items(self):
-        """모든 사양변경 묶음을 순차 등록 — 컨트롤러가 단건 처리.
-        (현재 컨트롤러는 단건 다이얼로그 흐름이므로 N 번 다이얼로그가 순차로 뜸)
-        """
+        """모든 사양변경 묶음을 일괄 등록 — 다이얼로그 한 번 + N 개 CB 이슈 생성."""
+        payload = []
         for block in self._spec_blocks:
             data = block.get_data()
-            # 빈 묶음(제목/내용 모두 공백)은 스킵
             if not any((data.get("title"),
                         data.get("content"), data.get("reason"))):
                 continue
-            self.spec_register_requested.emit(data)
+            payload.append(data)
+        if payload:
+            self.spec_register_all_requested.emit(payload)
 
     # ── 수평전개 묶음 add / delete / register ─────────────────
     def _add_hzt(self):
@@ -1931,12 +1990,17 @@ class SpecChangePage(BasePage):
         block.delete_requested.connect(self._delete_hzt)
         block.register_requested.connect(self._register_hzt)
         self._hzt_blocks.append(block)
-        self._hzt_lay.addWidget(block)
+        # placeholder 앞에 삽입
+        ph_idx = self._hzt_lay.indexOf(self._hzt_empty_ph)
+        if ph_idx >= 0:
+            self._hzt_lay.insertWidget(ph_idx, block)
+        else:
+            self._hzt_lay.addWidget(block)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
 
     def _delete_hzt(self, block: "HztBlock"):
-        if len(self._hzt_blocks) <= 1:
-            return
+        # 0개까지 허용
         try:
             self._hzt_blocks.remove(block)
         except ValueError:
@@ -1945,17 +2009,34 @@ class SpecChangePage(BasePage):
         for i, b in enumerate(self._hzt_blocks, start=1):
             b.set_index(i)
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
+
+    # ── 0개 시 placeholder 메시지 ─────────────────────────────
+    def _refresh_empty_placeholders(self):
+        """각 탭이 0개일 때 안내 placeholder 표시 / 1개 이상이면 숨김."""
+        for blocks, ph_attr, label in (
+            (self._items,       "_items_empty_ph",  "이슈"),
+            (self._spec_blocks, "_spec_empty_ph",   "사양변경"),
+            (self._hzt_blocks,  "_hzt_empty_ph",    "수평전개"),
+        ):
+            ph = getattr(self, ph_attr, None)
+            if ph is not None:
+                ph.setVisible(len(blocks) == 0)
 
     def _register_hzt(self, block: "HztBlock"):
         self.hzt_register_requested.emit(block.get_data())
 
     def _register_all_hzt_items(self):
+        """모든 수평전개 묶음을 일괄 등록 — 다이얼로그 한 번 + N 개 CB 이슈 생성."""
+        payload = []
         for block in self._hzt_blocks:
             data = block.get_data()
             if not any((data.get("title"), data.get("jira"),
                         data.get("content"), data.get("occurrence"))):
                 continue
-            self.hzt_register_requested.emit(data)
+            payload.append(data)
+        if payload:
+            self.hzt_register_all_requested.emit(payload)
 
     # ── 세션 간 상태 저장 / 복원 ───────────────────────────────
     @staticmethod
@@ -2040,8 +2121,9 @@ class SpecChangePage(BasePage):
                     self._hzt_blocks[-1].set_data(d)
             for i, b in enumerate(self._hzt_blocks, start=1):
                 b.set_index(i)
-        # 복원 끝 — 탭 라벨 개수 갱신
+        # 복원 끝 — 탭 라벨 + placeholder 갱신
         self._refresh_tab_counts()
+        self._refresh_empty_placeholders()
 
     def save_state(self):
         """현재 상태를 spec_state.json 에 저장 — 앱 종료 시 호출."""
@@ -2071,13 +2153,11 @@ class SpecChangePage(BasePage):
         hzts   = (classified or {}).get("hzt")   or []
         others = (classified or {}).get("other") or []
 
-        # 1) 이슈 탭 — 기존 묶음 비우고 새로 만듦. 0건이면 빈 묶음 1개 유지.
+        # 1) 이슈 탭 — 기존 묶음 비우고 새로 만듦. 0건이면 0개 유지.
         for b in list(self._items):
             b.deleteLater()
         self._items.clear()
-        if not issues:
-            self._add_item()
-        else:
+        if issues:
             for parsed in issues:
                 self._add_item()
                 self._items[-1].set_data({
@@ -2099,9 +2179,7 @@ class SpecChangePage(BasePage):
         for b in list(self._spec_blocks):
             b.deleteLater()
         self._spec_blocks.clear()
-        if not specs:
-            self._add_spec()
-        else:
+        if specs:
             for parsed in specs:
                 self._add_spec()
                 self._spec_blocks[-1].set_data({
@@ -2118,9 +2196,7 @@ class SpecChangePage(BasePage):
         for b in list(self._hzt_blocks):
             b.deleteLater()
         self._hzt_blocks.clear()
-        if not hzts:
-            self._add_hzt()
-        else:
+        if hzts:
             for parsed in hzts:
                 self._add_hzt()
                 self._hzt_blocks[-1].set_data({

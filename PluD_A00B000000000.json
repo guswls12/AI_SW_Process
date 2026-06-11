@@ -52,5 +52,12 @@
         "date": ""
       }
     }
+  },
+  "upload_results": {
+    "spec": {
+      "by_local_id": {
+        "issue#1": "1169094"
+      }
+    }
   }
 }

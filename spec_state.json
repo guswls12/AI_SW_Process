@@ -8,7 +8,35 @@
     "attendees": "윤희종, 김인규, 최해인",
     "date": ""
   },
-  "items": [],
+  "items": [
+    {
+      "title": "Full charge 후 재충전 시도 실패",
+      "jira": "",
+      "phenom": "",
+      "analysis": "",
+      "action": "",
+      "occurrence": "",
+      "customer_open": "",
+      "hzt": {
+        "NQ5 PE": "미적용",
+        "MQ4i": "미적용",
+        "LX3": "미적용",
+        "JW": "미적용",
+        "TK1": "미적용",
+        "LQ2": "미적용",
+        "SP3": "미적용",
+        "KU FL": "미적용",
+        "SG2": "미적용",
+        "NX5(30Ah)": "미적용",
+        "NX5(20Ah)": "미적용",
+        "SX3": "미적용",
+        "QY2i": "미적용",
+        "NQ6(30Ah)": "미적용",
+        "NQ6(20Ah)": "미적용"
+      },
+      "attachments": []
+    }
+  ],
   "spec_changes": [
     {
       "title": "RS485 통신",

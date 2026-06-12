@@ -29,7 +29,7 @@ PAGE_KEYS = (
     "spec",    # ① 사양 변경
     "srs",     # ② SWE.1 SRS
     "sad",     # ③ SWE.2 SAD
-    "sdd",     # ④ SWE.3/4 SDD
+    "sdd",     # ④ SWE.3 SDD
     "static",  # ⑤ 정적 검증 결과
     "review",  # ⑥ 코드리뷰 결과
     "test",    # ⑦ 설계자 테스트 결과
@@ -41,7 +41,7 @@ PAGE_LABELS = {
     "spec":   "① 사양 변경",
     "srs":    "② SWE.1 SRS",
     "sad":    "③ SWE.2 SAD",
-    "sdd":    "④ SWE.3/4 SDD",
+    "sdd":    "④ SWE.3 SDD",
     "static": "⑤ 정적 검증 결과",
     "review": "⑥ 코드리뷰 결과",
     "test":   "⑦ 설계자 테스트 결과",

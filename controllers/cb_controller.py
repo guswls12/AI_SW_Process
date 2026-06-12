@@ -1274,7 +1274,7 @@ class CbController:
     _SWE_PAGE_ATTRS = {
         "srs":    "_page_srs",      # ② SWE.1 SRS
         "sad":    "_page_sad",      # ③ SWE.2 SAD
-        "sdd":    "_page_sdd",      # ④ SWE.3/4 SDD
+        "sdd":    "_page_sdd",      # ④ SWE.3 SDD
         "static": "_page_static",   # ⑤ 정적 검증 결과
         "review": "_page_review",   # ⑥ 코드리뷰 결과
         "test":   "_page_test",     # ⑦ 설계자 테스트 결과
@@ -1282,7 +1282,7 @@ class CbController:
     _SWE_PAGE_LABELS = {
         "srs":    "② SWE.1 SRS",
         "sad":    "③ SWE.2 SAD",
-        "sdd":    "④ SWE.3/4 SDD",
+        "sdd":    "④ SWE.3 SDD",
         "static": "⑤ 정적 검증 결과",
         "review": "⑥ 코드리뷰 결과",
         "test":   "⑦ 설계자 테스트 결과",
